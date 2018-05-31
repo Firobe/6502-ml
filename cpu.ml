@@ -1,3 +1,7 @@
+(* http://www.obelisk.me.uk/6502/ *)
+(* https://wiki.nesdev.com/w/index.php/RTS_Trick *)
+(* http://www.masswerk.at/6502/6502_instruction_set.html *)
+
 (* STATE *)
 
 (* 0x000 to 0xFFFF main memory *)
