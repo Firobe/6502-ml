@@ -53,6 +53,7 @@ type addressing_mode =
   | Indirect
   | Indexed_Indirect
   | Indirect_Indexed
+let current_addressing_mode = ref Implicit
 
 let addressing_mode_size = function
   | Implicit
@@ -109,9 +110,12 @@ let update_negative_flag v =
 (* Load/Store *)
 let aux_LD r (m : memory_wrapper) =
   let v = m#get () in
-  r := v ;
-  update_zero_flag v ;
-  update_negative_flag v
+  let nv = if !current_addressing_mode = Absolute then
+      memory.(v)
+  else v in
+  r := nv ;
+  update_zero_flag nv ;
+  update_negative_flag nv
 
 let _LDA = aux_LD accumulator
 let _LDX = aux_LD index_register_x
@@ -179,7 +183,7 @@ let _ADC m =
   let sum = !accumulator + v + get_flag `Carry in
   set_flag (sum > 0xFF) `Carry ;
   set_flag (sum > 0x7F) `Overflow ; (* Weird *)
-  accumulator := sum
+  accumulator := sum land 0xFF
 
 let _SBC m =
   let v = m#get () in
@@ -188,7 +192,7 @@ let _SBC m =
   let sub = !accumulator - v - (1 - get_flag `Carry) in
   set_flag (sub > !accumulator) `Carry ;
   set_flag (sub > !accumulator) `Overflow ;
-  accumulator := sub
+  accumulator := sub land 0xFF
 
 let _CMP m = aux_CMP (!accumulator - (m#get ()))
 let _CPX m = aux_CMP (!index_register_x - (m#get ()))
@@ -196,7 +200,7 @@ let _CPY m = aux_CMP (!index_register_y - (m#get ()))
 
 (* Increments & Decrements *)
 let aux_cr v r =
-  r#set (r#get () + v) ;
+  r#set ((r#get () + v) land 0xFF);
   update_zero_flag (r#get ()) ;
   update_negative_flag (r#get ())
 
@@ -245,8 +249,12 @@ let _RTS _ = aux_pull program_counter ; program_counter := !program_counter + 1
 
 (* Branches *)
 let aux_branch f s v =
+  let nv = if v > 0x7F then
+      - (((lnot v) + 1) land 0xFF)
+      else v
+  in
   if get_flag f = s then
-    program_counter := !program_counter + v
+    program_counter := !program_counter + nv
 
 let _BCC rel = aux_branch `Carry 0 @@ rel#get ()
 let _BCS rel = aux_branch `Carry 1 @@ rel#get ()
@@ -369,6 +377,7 @@ let next_instr () =
   | Indirect_Indexed -> new addr_wrapper (memory.(v1) + !index_register_y)
   end in
   let ins_fun = get_instruction_fun a b c in
+  current_addressing_mode := addr_mode ;
   ins_fun arg
 
 let load_rom path =
