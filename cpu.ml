@@ -15,7 +15,7 @@ let stack_pointer = ref 0x00FF
 let accumulator = ref 0x00
 let index_register_x = ref 0x00
 let index_register_y = ref 0x00
-let processor_status = ref 0x0
+let processor_status = ref 0x00 (* Reserved bit always on *)
 
 (* Memory wrappers *)
 class virtual memory_wrapper () = object(_)
@@ -71,11 +71,12 @@ let addressing_mode_size = function
   | Indirect          -> 3
 
 let get_flag_mask f = match f with
-  | `Carry     -> 1 lsl 1
-  | `Zero      -> 1 lsl 2
-  | `Interrupt -> 1 lsl 3
-  | `Decimal   -> 1 lsl 4
-  | `Break     -> 1 lsl 5
+  | `Carry     -> 1 lsl 0
+  | `Zero      -> 1 lsl 1
+  | `Interrupt -> 1 lsl 2
+  | `Decimal   -> 1 lsl 3
+  | `Break     -> 1 lsl 4
+  | `Reserved  -> 1 lsl 5
   | `Overflow  -> 1 lsl 6
   | `Negative  -> 1 lsl 7
 
@@ -90,8 +91,9 @@ let get_flag f =
   if get_flag_mask f land !processor_status != 0 then 1 else 0
 
 let dump_registers () =
-    Printf.printf "PC = %.4X  SP = %.4X\n%!" !program_counter !stack_pointer ;
-    Printf.printf "ACC = %.2X  X = %.2X  Y = %.2X\n%!" !accumulator
+    Printf.printf "-------------------------------------------------\n" ;
+    ANSITerminal.printf [ANSITerminal.on_red] "PC = %.4X\n%!" !program_counter ;
+    Printf.printf "SP = %.4X  ACC = %.2X  X = %.2X  Y = %.2X\n%!" !stack_pointer !accumulator
         !index_register_x !index_register_y ;
     Printf.printf "C=%d Z=%d I=%d D=%d B=%d V=%d N=%d\n%!"
         (get_flag `Carry) (get_flag `Zero) (get_flag `Interrupt) (get_flag `Decimal)
@@ -110,7 +112,7 @@ let update_negative_flag v =
 (* Load/Store *)
 let aux_LD r (m : memory_wrapper) =
   let v = m#get () in
-  let nv = if !current_addressing_mode = Absolute then
+  let nv = if !current_addressing_mode != Immediate then
       memory.(v)
   else v in
   r := nv ;
@@ -120,9 +122,14 @@ let aux_LD r (m : memory_wrapper) =
 let _LDA = aux_LD accumulator
 let _LDX = aux_LD index_register_x
 let _LDY = aux_LD index_register_y
-let _STA m = m#set !accumulator
-let _STX m = m#set !index_register_x
-let _STY m = m#set !index_register_y
+
+let aux_ST (m: memory_wrapper) v =
+  let a = m#get () in
+  memory.(a) <- v
+
+let _STA m = aux_ST m !accumulator
+let _STX m = aux_ST m !index_register_x
+let _STY m = aux_ST m !index_register_y
 
 (* Register transfers *)
 let aux_T f t = 
@@ -147,7 +154,7 @@ let aux_pull r =
 let _TSX _ = aux_T !stack_pointer index_register_x
 let _TXS _ = stack_pointer := !index_register_x
 let _PHA _ = aux_push !accumulator
-let _PHP _ = aux_push !processor_status
+let _PHP _ = aux_push (!processor_status lor get_flag_mask `Break)
 let _PLA _ =
   aux_pull accumulator ;
   update_zero_flag !accumulator ;
@@ -171,7 +178,12 @@ let _BIT m =
   set_flag ((v lsr 6) land 0x1 = 1) `Overflow
 
 (* Arithmetic *)
-let aux_CMP c =
+let aux_CMP r (m : memory_wrapper) =
+  let v = m#get () in
+  let nv = if !current_addressing_mode != Immediate then
+      memory.(v)
+  else v in
+  let c = r - nv in
   update_zero_flag c ;
   update_negative_flag c ;
   set_flag (c >= 0) `Carry
@@ -194,9 +206,9 @@ let _SBC m =
   set_flag (sub > !accumulator) `Overflow ;
   accumulator := sub land 0xFF
 
-let _CMP m = aux_CMP (!accumulator - (m#get ()))
-let _CPX m = aux_CMP (!index_register_x - (m#get ()))
-let _CPY m = aux_CMP (!index_register_y - (m#get ()))
+let _CMP m = aux_CMP !accumulator m
+let _CPX m = aux_CMP !index_register_x m
+let _CPY m = aux_CMP !index_register_y m
 
 (* Increments & Decrements *)
 let aux_cr v r =
@@ -356,8 +368,9 @@ let next_instr () =
   let v1 = memory.(b1) in
   let v2 = memory.(b2) in
   let v12 = v1 lor (v2 lsl 8) in
-  Printf.printf "Executing %.2X %.2X %.2X\n" opcode v1 v2;
-  Printf.printf "(a, b, c) = (%d, %d, %d)\n%!" a b c ;
+  Printf.printf "Executing instruction : " ;
+  ANSITerminal.printf [ANSITerminal.on_green] "%.2X" opcode ;
+  Printf.printf " %.2X %.2X\n" v1 v2;
   let addr_mode = get_addressing_mode a b c in
   let mode_size = addressing_mode_size addr_mode in
   program_counter := !program_counter + mode_size ;
@@ -378,6 +391,7 @@ let next_instr () =
   end in
   let ins_fun = get_instruction_fun a b c in
   current_addressing_mode := addr_mode ;
+  processor_status := !processor_status lor (get_flag_mask `Reserved) ;
   ins_fun arg
 
 let load_rom path =

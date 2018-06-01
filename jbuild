@@ -3,5 +3,6 @@
 (executable
 	(
 		(name cpu)
+		(libraries (ANSITerminal))
 	)
 )
