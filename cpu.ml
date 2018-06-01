@@ -21,21 +21,25 @@ let processor_status = ref 0x00 (* Reserved bit always on *)
 class virtual memory_wrapper () = object(_)
     method virtual get : unit -> int
     method virtual set : int -> unit
+    method virtual self : unit -> int
 end
 class addr_wrapper addr = object(_)
     inherit memory_wrapper ()
     method get () = memory.(addr)
     method set v = memory.(addr) <- v
+    method self () = addr
 end
 class ref_wrapper r = object(_)
     inherit memory_wrapper ()
     method get () = !r
     method set v = r := v
+    method self () = assert false
 end
 class dummy_wrapper () = object(_)
     inherit memory_wrapper ()
     method get () = assert false
     method set _ = assert false
+    method self () = assert false
 end
 
 (* Utils *)
@@ -112,20 +116,16 @@ let update_negative_flag v =
 (* Load/Store *)
 let aux_LD r (m : memory_wrapper) =
   let v = m#get () in
-  let nv = if !current_addressing_mode != Immediate then
-      memory.(v)
-  else v in
-  r := nv ;
-  update_zero_flag nv ;
-  update_negative_flag nv
+  r := v ;
+  update_zero_flag v ;
+  update_negative_flag v
 
 let _LDA = aux_LD accumulator
 let _LDX = aux_LD index_register_x
 let _LDY = aux_LD index_register_y
 
 let aux_ST (m: memory_wrapper) v =
-  let a = m#get () in
-  memory.(a) <- v
+  m#set v
 
 let _STA m = aux_ST m !accumulator
 let _STX m = aux_ST m !index_register_x
@@ -145,10 +145,10 @@ let _TYA _ = aux_T !index_register_y accumulator
 (* Stack operations *)
 let aux_push v =
   memory.(0x0100 + !stack_pointer) <- v ;
-  stack_pointer := !stack_pointer - 1
+  stack_pointer := (!stack_pointer - 1) land 0xFF
 
 let aux_pull r =
-  stack_pointer := !stack_pointer + 1 ;
+  stack_pointer := (!stack_pointer + 1) land 0xFF ;
   r := memory.(0x0100 + !stack_pointer)
 
 let _TSX _ = aux_T !stack_pointer index_register_x
@@ -179,10 +179,7 @@ let _BIT m =
 
 (* Arithmetic *)
 let aux_CMP r (m : memory_wrapper) =
-  let v = m#get () in
-  let nv = if !current_addressing_mode != Immediate then
-      memory.(v)
-  else v in
+  let nv = m#get () in
   let c = r - nv in
   update_zero_flag c ;
   update_negative_flag c ;
@@ -190,21 +187,20 @@ let aux_CMP r (m : memory_wrapper) =
 
 let _ADC m =
   let v = m#get () in
+  let sum = !accumulator + v + (get_flag `Carry) in
+  let carry = (sum > 0xFF) in
+  set_flag carry `Carry ;
+  let rsum = sum land 0xFF in
+  let carry2 = ((!accumulator lxor rsum) land (v lxor rsum) land 0x80) != 0 in
+  set_flag carry2 `Overflow ;
+  accumulator := rsum ;
   update_zero_flag !accumulator ;
-  update_negative_flag !accumulator ;
-  let sum = !accumulator + v + get_flag `Carry in
-  set_flag (sum > 0xFF) `Carry ;
-  set_flag (sum > 0x7F) `Overflow ; (* Weird *)
-  accumulator := sum land 0xFF
+  update_negative_flag !accumulator
 
 let _SBC m =
   let v = m#get () in
-  update_zero_flag !accumulator ;
-  update_negative_flag !accumulator ;
-  let sub = !accumulator - v - (1 - get_flag `Carry) in
-  set_flag (sub > !accumulator) `Carry ;
-  set_flag (sub > !accumulator) `Overflow ;
-  accumulator := sub land 0xFF
+  let c2 = (v lxor 0xFF) in
+  _ADC (new ref_wrapper (ref c2))
 
 let _CMP m = aux_CMP !accumulator m
 let _CPX m = aux_CMP !index_register_x m
@@ -212,9 +208,11 @@ let _CPY m = aux_CMP !index_register_y m
 
 (* Increments & Decrements *)
 let aux_cr v r =
-  r#set ((r#get () + v) land 0xFF);
-  update_zero_flag (r#get ()) ;
-  update_negative_flag (r#get ())
+  let nv = r#get () in
+  let updated = (nv + v) land 0xFF in
+  r#set updated ;
+  update_zero_flag updated ;
+  update_negative_flag updated
 
 let _INC = aux_cr 1
 let _INX _ = _INC (new ref_wrapper index_register_x)
@@ -225,39 +223,53 @@ let _DEY _ = _DEC (new ref_wrapper index_register_y)
 
 (* Shifts *)
 let _ASL m =
-  let v = m#get () in
-  update_zero_flag v ;
-  update_negative_flag v ;
-  set_flag ((v lsr 7) land 0x1 = 1) `Carry ;
-  m#set @@ v lsl 1
+  let nv = m#get () in
+  update_zero_flag nv ;
+  set_flag ((nv lsr 7) land 0x1 = 1) `Carry ;
+  let updated = (nv lsl 1) land 0xFF in
+  update_negative_flag updated ;
+  m#set updated
 
 let _LSR m =
-  let v = m#get () in
-  set_flag (v land 0x1 = 1) `Carry ;
-  m#set @@ v lsr 1 ;
-  update_zero_flag (m#get ()) ;
-  update_negative_flag (m#get ())
+  let nv = m#get () in
+  set_flag (nv land 0x1 = 1) `Carry ;
+  let updated = nv lsr 1 in
+  m#set updated ;
+  update_zero_flag updated ;
+  update_negative_flag updated
 
 let _ROL m =
-  let v = m#get () in
-  update_zero_flag v ;
-  let new_carry = ((v lsr 7) land 0x1 = 1) in
-  m#set @@ v lsl 1 land (get_flag `Carry) ;
-  set_flag new_carry `Carry ;
-  update_negative_flag @@ m#get ()
+  let nv = m#get () in
+  let new_carry = ((nv lsr 7) land 0x1 = 1) in
+  let updated = ((nv lsl 1) lor (get_flag `Carry)) land 0xFF in
+  m#set updated ;
+  update_zero_flag updated ;
+  update_negative_flag updated ;
+  set_flag new_carry `Carry
 
 let _ROR m =
-  let v = m#get () in
-  update_zero_flag v ;
-  let new_carry = (v land 0x1 = 1) in
-  m#set @@ v lsr 1 land ((get_flag `Carry) lsl 7);
-  set_flag new_carry `Carry ;
-  update_negative_flag @@ m#get ()
+  let nv = m#get () in
+  let new_carry = (nv land 0x1 = 1) in
+  let updated = (nv lsr 1) lor ((get_flag `Carry) lsl 7) in
+  m#set updated ;
+  update_zero_flag updated ;
+  update_negative_flag updated ;
+  set_flag new_carry `Carry
 
 (* Jump and calls *)
-let _JMP addr = program_counter := addr#get ()
-let _JSR addr = aux_push (!program_counter - 1) ; _JMP addr
-let _RTS _ = aux_pull program_counter ; program_counter := !program_counter + 1
+let _JMP addr = program_counter := addr#self ()
+let _JSR addr =
+    let r = !program_counter - 1 in
+    aux_push @@ r lsr 8 ;
+    aux_push @@ r land 0x00FF ;
+    _JMP addr
+let _RTS _ =
+    let hi = ref 0 in
+    let lo = ref 0 in
+    aux_pull lo ;
+    aux_pull hi ;
+    program_counter := !lo lor (!hi lsl 8) ;
+    program_counter := !program_counter + 1
 
 (* Branches *)
 let aux_branch f s v =
@@ -282,24 +294,31 @@ let _CLC _ = set_flag false `Carry
 let _CLD _ = set_flag false `Decimal
 let _CLI _ = set_flag false `Interrupt
 let _CLV _ = set_flag false `Overflow
-let _SEC _ = set_flag false `Carry
+let _SEC _ = set_flag true `Carry
 let _SED _ = set_flag true `Decimal
 let _SEI _ = set_flag true `Interrupt
 
 (* System functions *)
 let _BRK _ =
-  aux_push !program_counter ;
-  aux_push !processor_status ;
+  let v = !program_counter + 1 in
+  aux_push @@ v lsr 8 ;
+  aux_push @@ v land 0x00FF ;
   set_flag true `Break ;
+  aux_push !processor_status ;
+  set_flag true `Interrupt ;
   let irq_l = memory.(0xFFFE) in
-  let irq_h = memory.(0xFFFF) lsl 7 in
-  program_counter := irq_l land irq_h
+  let irq_h = memory.(0xFFFF) lsl 8 in
+  program_counter := irq_l lor irq_h
 
 let _NOP _ = ()
 
 let _RTI _ =
   aux_pull processor_status ;
-  aux_pull program_counter
+  let lo = ref 0 in
+  let hi = ref 0 in
+  aux_pull lo ;
+  aux_pull hi ;
+  program_counter := !lo lor (!hi lsl 8)
 
 let shift_and_mask v dec mask =
     let target = v lsr dec in
@@ -313,7 +332,7 @@ let get_addressing_mode a b c = match b with
           | a when a > 4 -> Immediate
           | _ -> Implicit
         end
-      | 1 -> Indirect_Indexed (* x, ind *)
+      | 1 -> Indexed_Indirect (* x, ind *)
       | 2 -> Immediate
       | _ -> assert false
     end
@@ -324,13 +343,13 @@ let get_addressing_mode a b c = match b with
       | 2 -> if a < 4 then Accumulator else Implicit
       | _ -> assert false
     end
-  | 3 -> Absolute
+  | 3 -> if a = 3 && c = 0 then Indirect else Absolute
   | 4 -> begin match c with
       | 0 -> Relative
-      | 1 -> Indexed_Indirect (* ind, y *)
+      | 1 -> Indirect_Indexed (* ind, y *)
       | _ -> assert false
     end
-  | 5 -> Zero_Page_X
+  | 5 -> if a < 4 || a > 5 || c != 2 then Zero_Page_X else Zero_Page_Y
   | 6 -> begin match c with
       | 0 -> Implicit
       | 1 -> Absolute_Y
@@ -368,9 +387,9 @@ let next_instr () =
   let v1 = memory.(b1) in
   let v2 = memory.(b2) in
   let v12 = v1 lor (v2 lsl 8) in
-  Printf.printf "Executing instruction : " ;
-  ANSITerminal.printf [ANSITerminal.on_green] "%.2X" opcode ;
-  Printf.printf " %.2X %.2X\n" v1 v2;
+  (*Printf.printf "Executing instruction : " ;
+  ANSITerminal.printf [ANSITerminal.on_red] "%.2X" opcode ;
+  Printf.printf " %.2X %.2X\n" v1 v2; *)
   let addr_mode = get_addressing_mode a b c in
   let mode_size = addressing_mode_size addr_mode in
   program_counter := !program_counter + mode_size ;
@@ -379,15 +398,19 @@ let next_instr () =
   | Accumulator -> new ref_wrapper accumulator
   | Immediate -> new addr_wrapper b1
   | Zero_Page -> new addr_wrapper v1
-  | Zero_Page_X -> new addr_wrapper (v1 + !index_register_x)
-  | Zero_Page_Y -> new addr_wrapper (v1 + !index_register_y)
+  | Zero_Page_X -> new addr_wrapper ((v1 + !index_register_x) land 0xFF)
+  | Zero_Page_Y -> new addr_wrapper ((v1 + !index_register_y) land 0xFF)
   | Relative -> new addr_wrapper b1
-  | Absolute -> new ref_wrapper (ref v12)
+  | Absolute -> new addr_wrapper v12
   | Absolute_X -> new addr_wrapper (!index_register_x + v12)
   | Absolute_Y -> new addr_wrapper (!index_register_y + v12)
-  | Indirect -> new addr_wrapper v12
-  | Indexed_Indirect -> new addr_wrapper memory.((v1 + !index_register_x))
-  | Indirect_Indexed -> new addr_wrapper (memory.(v1) + !index_register_y)
+  | Indirect -> new addr_wrapper (memory.(v12) lor (memory.(v12 + 1) lsl 8))
+  | Indexed_Indirect (*X*) -> 
+          let sto_addr = (v1 + !index_register_x) land 0xFF in
+          new addr_wrapper (memory.(sto_addr) lor (memory.(sto_addr + 1) lsl 8))
+  | Indirect_Indexed (*Y*) ->
+          let sto = memory.(v1) lor (memory.(v1 + 1) lsl 8) in
+          new addr_wrapper (sto + !index_register_y)
   end in
   let ins_fun = get_instruction_fun a b c in
   current_addressing_mode := addr_mode ;
@@ -396,22 +419,36 @@ let next_instr () =
 
 let load_rom path =
     let file = open_in_bin path in
-    let store = Bytes.create 0x1000 in
-    let read = input file store 0 0x1000 in
+    let store = Bytes.create 0x10000 in
+    let read = input file store 0 0x10000 in
     let store = Bytes.sub store 0 read in
     Bytes.iteri (fun i el -> Array.set memory (0x0 + i) (int_of_char el)) store ;
     Printf.printf "Loaded %d bytes into the RAM\n" read
 
 let main =
+    let count = ref 0 in
     if Array.length Sys.argv > 1 then
         load_rom Sys.argv.(1)
     ;
     let continue = ref true in
     while !continue do
-        dump_registers () ;
+        count := !count + 1 ;
+(*         Printf.printf "CYCLE N°%d\n" !count ; *)
+(*         dump_registers () ; *)
+(*
+        Printf.printf "ad1 %.2X ad2 %.2X sb2 %.2X adrf %.2X adrl %.2X\n"
+            memory.(0xD) memory.(0xE) memory.(0x12) memory.(0x11) memory.(0xF);
+*)
         let back = !program_counter in
         next_instr () ;
         if back = !program_counter then
             continue := false
     done ;
-    Printf.printf "END : trap encountered at %.4X\n%!" !program_counter
+    Printf.printf "END : trap encountered at %.4X\n%!" !program_counter ;
+    Printf.printf "Lasted %d cycles...\n" !count ;
+    Printf.printf "ad1 %.2X ad2 %.2X sb2 %.2X adrf %.2X adrl %.2X\n"
+        memory.(0xD) memory.(0xE) memory.(0x12) memory.(0x11) memory.(0xF);
+    dump_registers () ;
+    if !program_counter = 0x3469 then
+        Printf.printf "SUCCESS !!!!\n%!"
+    else Printf.printf "Failure...\n%!"
