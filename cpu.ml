@@ -2,9 +2,13 @@
 (* https://wiki.nesdev.com/w/index.php/RTS_Trick *)
 (* http://www.masswerk.at/6502/6502_instruction_set.html *)
 
+let debug = ref false
+let debug_points = []
+
 (* STATE *)
 
 (* 0x000 to 0xFFFF main memory *)
+
 let memory = Array.make 0x10000 0x00
 
 let general_registers = Array.make 0x10 0x00
@@ -185,21 +189,41 @@ let aux_CMP r (m : memory_wrapper) =
   update_negative_flag c ;
   set_flag (c >= 0) `Carry
 
+(* 8-bit BCD to/from decimal int *)
+let bcd_to_dec b = 
+    let lo = b land 0x0F in
+    let hi = b lsr 4 in
+    lo + hi * 10
+let dec_to_bcd d =
+    let lo = d mod 10 in
+    let hi = d / 10 in
+    lo lor (hi lsl 4)
+
 let _ADC m =
   let v = m#get () in
-  let sum = !accumulator + v + (get_flag `Carry) in
-  let carry = (sum > 0xFF) in
-  set_flag carry `Carry ;
-  let rsum = sum land 0xFF in
-  let carry2 = ((!accumulator lxor rsum) land (v lxor rsum) land 0x80) != 0 in
-  set_flag carry2 `Overflow ;
-  accumulator := rsum ;
+  let decimal = get_flag `Decimal = 1 in
+  let pre = if decimal then bcd_to_dec else fun x -> x in
+  let post = if decimal then dec_to_bcd else fun x -> x in
+  let max = if decimal then 99 else 0xFF in
+  let op1 = pre !accumulator in
+  let op2 = pre v in
+  let c = get_flag `Carry in
+  let sum = op1 + op2 + c in
+  let nc = sum > max in
+  set_flag nc `Carry ;
+  let rsum = sum mod (max + 1) in
+  let overflow = ((!accumulator lxor rsum) land (v lxor rsum) land 0x80) != 0 in
+  set_flag overflow `Overflow ;
+  accumulator := post rsum ;
   update_zero_flag !accumulator ;
   update_negative_flag !accumulator
 
 let _SBC m =
   let v = m#get () in
-  let c2 = (v lxor 0xFF) in
+  let c2 = if get_flag `Decimal = 1 then
+      dec_to_bcd (100 - (bcd_to_dec v) - 1)
+  else
+      (v lxor 0xFF) in
   _ADC (new ref_wrapper (ref c2))
 
 let _CMP m = aux_CMP !accumulator m
@@ -324,6 +348,10 @@ let shift_and_mask v dec mask =
     let target = v lsr dec in
     target land mask
 
+let invalid_instruction () =
+    Printf.printf "Invalid instruction %.2X\n" memory.(!program_counter) ;
+    assert false
+
 (* Addressing and instruction dispatch *)
 let get_addressing_mode a b c = match b with
   | 0 -> begin match c with
@@ -334,30 +362,30 @@ let get_addressing_mode a b c = match b with
         end
       | 1 -> Indexed_Indirect (* x, ind *)
       | 2 -> Immediate
-      | _ -> assert false
+      | _ -> invalid_instruction ()
     end
   | 1 -> Zero_Page
   | 2 -> begin match c with
       | 0 -> Implicit
       | 1 -> Immediate
       | 2 -> if a < 4 then Accumulator else Implicit
-      | _ -> assert false
+      | _ -> invalid_instruction ()
     end
   | 3 -> if a = 3 && c = 0 then Indirect else Absolute
   | 4 -> begin match c with
       | 0 -> Relative
       | 1 -> Indirect_Indexed (* ind, y *)
-      | _ -> assert false
+      | _ -> invalid_instruction ()
     end
   | 5 -> if a < 4 || a > 5 || c != 2 then Zero_Page_X else Zero_Page_Y
   | 6 -> begin match c with
       | 0 -> Implicit
       | 1 -> Absolute_Y
       | 2 -> Implicit
-      | _ -> assert false
+      | _ -> invalid_instruction ()
     end
   | 7 -> if c = 2 && a = 5 then Absolute_Y else Absolute_X
-  | _ -> assert false
+  | _ -> invalid_instruction ()
 
 let get_instruction_fun a b c = match (c, a) with
     | 0, 0 -> List.nth [_BRK; _NOP; _PHP; _NOP; _BPL; _NOP; _CLC] b
@@ -387,9 +415,11 @@ let next_instr () =
   let v1 = memory.(b1) in
   let v2 = memory.(b2) in
   let v12 = v1 lor (v2 lsl 8) in
-  (*Printf.printf "Executing instruction : " ;
-  ANSITerminal.printf [ANSITerminal.on_red] "%.2X" opcode ;
-  Printf.printf " %.2X %.2X\n" v1 v2; *)
+  if !debug then (
+      Printf.printf "Executing instruction : " ;
+      ANSITerminal.printf [ANSITerminal.on_red] "%.2X" opcode ;
+      Printf.printf " %.2X %.2X\n" v1 v2;
+  ) ;
   let addr_mode = get_addressing_mode a b c in
   let mode_size = addressing_mode_size addr_mode in
   program_counter := !program_counter + mode_size ;
@@ -433,12 +463,10 @@ let main =
     let continue = ref true in
     while !continue do
         count := !count + 1 ;
-(*         Printf.printf "CYCLE N°%d\n" !count ; *)
-(*         dump_registers () ; *)
-(*
-        Printf.printf "ad1 %.2X ad2 %.2X sb2 %.2X adrf %.2X adrl %.2X\n"
-            memory.(0xD) memory.(0xE) memory.(0x12) memory.(0x11) memory.(0xF);
-*)
+        if !debug || (List.mem !program_counter debug_points) then (
+            Printf.printf "CYCLE N°%d\n" !count ;
+            dump_registers ()
+        );
         let back = !program_counter in
         next_instr () ;
         if back = !program_counter then
@@ -446,9 +474,6 @@ let main =
     done ;
     Printf.printf "END : trap encountered at %.4X\n%!" !program_counter ;
     Printf.printf "Lasted %d cycles...\n" !count ;
-    Printf.printf "ad1 %.2X ad2 %.2X sb2 %.2X adrf %.2X adrl %.2X\n"
-        memory.(0xD) memory.(0xE) memory.(0x12) memory.(0x11) memory.(0xF);
-    dump_registers () ;
     if !program_counter = 0x3469 then
         Printf.printf "SUCCESS !!!!\n%!"
     else Printf.printf "Failure...\n%!"
