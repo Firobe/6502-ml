@@ -7,3 +7,10 @@ Exposed as a library through `cpu.mli`
 The CPU passes all functional tests of [Klaus Dormann's test suite](https://github.com/Klaus2m5/6502_65C02_functional_tests) (`test.bin` is an assembled of `6502_functional_test.a65)  
 
 It's zero page starts at address `0x0000`
+
+Great ressources used :
+- http://www.6502.org/tutorials/
+- http://www.obelisk.me.uk/6502/
+- https://wiki.nesdev.com/
+- http://www.masswerk.at/6502/6502_instruction_set.html
+
