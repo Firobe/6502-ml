@@ -2,9 +2,6 @@
 (* https://wiki.nesdev.com/w/index.php/RTS_Trick *)
 (* http://www.masswerk.at/6502/6502_instruction_set.html *)
 
-let debug = ref false
-let debug_points = []
-
 (* STATE *)
 
 (* 0x000 to 0xFFFF main memory *)
@@ -100,7 +97,7 @@ let get_flag f =
 
 let dump_registers () =
     Printf.printf "-------------------------------------------------\n" ;
-    ANSITerminal.printf [ANSITerminal.on_red] "PC = %.4X\n%!" !program_counter ;
+    Printf.printf "PC = %.4X\n%!" !program_counter ;
     Printf.printf "SP = %.4X  ACC = %.2X  X = %.2X  Y = %.2X\n%!" !stack_pointer !accumulator
         !index_register_x !index_register_y ;
     Printf.printf "C=%d Z=%d I=%d D=%d B=%d V=%d N=%d\n%!"
@@ -405,7 +402,7 @@ let get_instruction_fun a b c = match (c, a) with
     | 2, 7 -> if b = 2 then _NOP else _INC
     | _ -> assert false
 
-let next_instr () =
+let next_instr ?debug:(debug=false) () =
   let opcode = memory.(!program_counter) in
   let a = shift_and_mask opcode 5 0x7 in
   let b = shift_and_mask opcode 2 0x7 in
@@ -415,10 +412,10 @@ let next_instr () =
   let v1 = memory.(b1) in
   let v2 = memory.(b2) in
   let v12 = v1 lor (v2 lsl 8) in
-  if !debug then (
+  if debug then (
       Printf.printf "Executing instruction : " ;
-      ANSITerminal.printf [ANSITerminal.on_red] "%.2X" opcode ;
-      Printf.printf " %.2X %.2X\n" v1 v2;
+      Printf.printf "%.2X" opcode ;
+      Printf.printf " %.2X %.2X\n" v1 v2
   ) ;
   let addr_mode = get_addressing_mode a b c in
   let mode_size = addressing_mode_size addr_mode in
@@ -447,33 +444,3 @@ let next_instr () =
   processor_status := !processor_status lor (get_flag_mask `Reserved) ;
   ins_fun arg
 
-let load_rom path =
-    let file = open_in_bin path in
-    let store = Bytes.create 0x10000 in
-    let read = input file store 0 0x10000 in
-    let store = Bytes.sub store 0 read in
-    Bytes.iteri (fun i el -> Array.set memory (0x0 + i) (int_of_char el)) store ;
-    Printf.printf "Loaded %d bytes into the RAM\n" read
-
-let main =
-    let count = ref 0 in
-    if Array.length Sys.argv > 1 then
-        load_rom Sys.argv.(1)
-    ;
-    let continue = ref true in
-    while !continue do
-        count := !count + 1 ;
-        if !debug || (List.mem !program_counter debug_points) then (
-            Printf.printf "CYCLE N°%d\n" !count ;
-            dump_registers ()
-        );
-        let back = !program_counter in
-        next_instr () ;
-        if back = !program_counter then
-            continue := false
-    done ;
-    Printf.printf "END : trap encountered at %.4X\n%!" !program_counter ;
-    Printf.printf "Lasted %d cycles...\n" !count ;
-    if !program_counter = 0x3469 then
-        Printf.printf "SUCCESS !!!!\n%!"
-    else Printf.printf "Failure...\n%!"
