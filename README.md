@@ -6,7 +6,8 @@ Exposed as a library through `cpu.mli`
 
 The CPU passes all functional tests of [Klaus Dormann's test suite](https://github.com/Klaus2m5/6502_65C02_functional_tests) (`test.bin` is an assembled of `6502_functional_test.a65)  
 
-It's zero page starts at address `0x0000`
+It's zero page starts at address `0x0000`  
+There is no support for accurate cycle count yet
 
 Great ressources used :
 - http://www.6502.org/tutorials/

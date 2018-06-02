@@ -4,7 +4,7 @@ let load_rom path =
     let read = input file store 0 0x10000 in
     let store = Bytes.sub store 0 read in
     Bytes.iteri (fun i el -> Array.set Cpu.memory (i) (int_of_char el)) store ;
-    Printf.printf "Loaded %d bytes into the RAM\n" read
+    Printf.printf "Loaded %d bytes into the memory\n%!" read
 
 let main =
     let count = ref 0 in

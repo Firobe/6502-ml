@@ -1,14 +1,7 @@
-(* http://www.obelisk.me.uk/6502/ *)
-(* https://wiki.nesdev.com/w/index.php/RTS_Trick *)
-(* http://www.masswerk.at/6502/6502_instruction_set.html *)
-
 (* STATE *)
 
 (* 0x000 to 0xFFFF main memory *)
-
 let memory = Array.make 0x10000 0x00
-
-let general_registers = Array.make 0x10 0x00
 
 (* Registers *)
 let program_counter = ref 0x0400
@@ -16,7 +9,7 @@ let stack_pointer = ref 0x00FF
 let accumulator = ref 0x00
 let index_register_x = ref 0x00
 let index_register_y = ref 0x00
-let processor_status = ref 0x00 (* Reserved bit always on *)
+let processor_status = ref 0x00
 
 (* Memory wrappers *)
 class virtual memory_wrapper () = object(_)
@@ -58,7 +51,6 @@ type addressing_mode =
   | Indirect
   | Indexed_Indirect
   | Indirect_Indexed
-let current_addressing_mode = ref Implicit
 
 let addressing_mode_size = function
   | Implicit
@@ -95,7 +87,7 @@ let set_flag cond f =
 let get_flag f =
   if get_flag_mask f land !processor_status != 0 then 1 else 0
 
-let dump_registers () =
+let print_registers () =
     Printf.printf "-------------------------------------------------\n" ;
     Printf.printf "PC = %.4X\n%!" !program_counter ;
     Printf.printf "SP = %.4X  ACC = %.2X  X = %.2X  Y = %.2X\n%!" !stack_pointer !accumulator
@@ -112,14 +104,17 @@ let update_negative_flag v =
   let cond = (v lsr 7) land 0x1 = 1 in
   set_flag cond `Negative
 
+let update_NZ v =
+    update_zero_flag v ;
+    update_negative_flag v
+
 (* INSTRUCTIONS *)
 
 (* Load/Store *)
 let aux_LD r (m : memory_wrapper) =
   let v = m#get () in
   r := v ;
-  update_zero_flag v ;
-  update_negative_flag v
+  update_NZ v
 
 let _LDA = aux_LD accumulator
 let _LDX = aux_LD index_register_x
@@ -134,9 +129,7 @@ let _STY m = aux_ST m !index_register_y
 
 (* Register transfers *)
 let aux_T f t = 
-  t := f ;
-  update_zero_flag f ;
-  update_negative_flag f
+  t := f ; update_NZ f
 
 let _TAX _ = aux_T !accumulator index_register_x
 let _TAY _ = aux_T !accumulator index_register_y
@@ -156,17 +149,12 @@ let _TSX _ = aux_T !stack_pointer index_register_x
 let _TXS _ = stack_pointer := !index_register_x
 let _PHA _ = aux_push !accumulator
 let _PHP _ = aux_push (!processor_status lor get_flag_mask `Break)
-let _PLA _ =
-  aux_pull accumulator ;
-  update_zero_flag !accumulator ;
-  update_negative_flag !accumulator
+let _PLA _ = aux_pull accumulator ; update_NZ !accumulator
 let _PLP _ = aux_pull processor_status
 
 (* Logical *)
 let aux_logic f =
-  accumulator := f !accumulator;
-  update_zero_flag !accumulator ;
-  update_negative_flag !accumulator
+    accumulator := f !accumulator; update_NZ !accumulator
 
 let _AND m = aux_logic ((land) @@ m#get ())
 let _EOR m = aux_logic ((lxor) @@ m#get ())
@@ -179,14 +167,6 @@ let _BIT m =
   set_flag ((v lsr 6) land 0x1 = 1) `Overflow
 
 (* Arithmetic *)
-let aux_CMP r (m : memory_wrapper) =
-  let nv = m#get () in
-  let c = r - nv in
-  update_zero_flag c ;
-  update_negative_flag c ;
-  set_flag (c >= 0) `Carry
-
-(* 8-bit BCD to/from decimal int *)
 let bcd_to_dec b = 
     let lo = b land 0x0F in
     let hi = b lsr 4 in
@@ -212,8 +192,7 @@ let _ADC m =
   let overflow = ((!accumulator lxor rsum) land (v lxor rsum) land 0x80) != 0 in
   set_flag overflow `Overflow ;
   accumulator := post rsum ;
-  update_zero_flag !accumulator ;
-  update_negative_flag !accumulator
+  update_NZ !accumulator
 
 let _SBC m =
   let v = m#get () in
@@ -222,6 +201,13 @@ let _SBC m =
   else
       (v lxor 0xFF) in
   _ADC (new ref_wrapper (ref c2))
+
+let aux_CMP r (m : memory_wrapper) =
+  let nv = m#get () in
+  let c = r - nv in
+  update_zero_flag c ;
+  update_negative_flag c ;
+  set_flag (c >= 0) `Carry
 
 let _CMP m = aux_CMP !accumulator m
 let _CPX m = aux_CMP !index_register_x m
@@ -232,8 +218,7 @@ let aux_cr v r =
   let nv = r#get () in
   let updated = (nv + v) land 0xFF in
   r#set updated ;
-  update_zero_flag updated ;
-  update_negative_flag updated
+  update_NZ updated
 
 let _INC = aux_cr 1
 let _INX _ = _INC (new ref_wrapper index_register_x)
@@ -243,39 +228,17 @@ let _DEX _ = _DEC (new ref_wrapper index_register_x)
 let _DEY _ = _DEC (new ref_wrapper index_register_y)
 
 (* Shifts *)
-let _ASL m =
-  let nv = m#get () in
-  update_zero_flag nv ;
-  set_flag ((nv lsr 7) land 0x1 = 1) `Carry ;
-  let updated = (nv lsl 1) land 0xFF in
-  update_negative_flag updated ;
-  m#set updated
+let aux_shift m r f =
+    let nv = m#get () in
+    let v = f nv in
+    set_flag ((nv lsr r) land 0x1 = 1) `Carry ;
+    m#set v ;
+    update_NZ v
 
-let _LSR m =
-  let nv = m#get () in
-  set_flag (nv land 0x1 = 1) `Carry ;
-  let updated = nv lsr 1 in
-  m#set updated ;
-  update_zero_flag updated ;
-  update_negative_flag updated
-
-let _ROL m =
-  let nv = m#get () in
-  let new_carry = ((nv lsr 7) land 0x1 = 1) in
-  let updated = ((nv lsl 1) lor (get_flag `Carry)) land 0xFF in
-  m#set updated ;
-  update_zero_flag updated ;
-  update_negative_flag updated ;
-  set_flag new_carry `Carry
-
-let _ROR m =
-  let nv = m#get () in
-  let new_carry = (nv land 0x1 = 1) in
-  let updated = (nv lsr 1) lor ((get_flag `Carry) lsl 7) in
-  m#set updated ;
-  update_zero_flag updated ;
-  update_negative_flag updated ;
-  set_flag new_carry `Carry
+let _ASL m = aux_shift m 7 @@ fun nv -> (nv lsl 1) land 0xFF
+let _LSR m = aux_shift m 0 @@ fun nv -> nv lsr 1
+let _ROL m = aux_shift m 7 @@ fun nv -> ((nv lsl 1) lor (get_flag `Carry)) land 0xFF
+let _ROR m = aux_shift m 0 @@ fun nv -> (nv lsr 1) lor ((get_flag `Carry) lsl 7)
 
 (* Jump and calls *)
 let _JMP addr = program_counter := addr#self ()
@@ -440,7 +403,7 @@ let next_instr ?debug:(debug=false) () =
           new addr_wrapper (sto + !index_register_y)
   end in
   let ins_fun = get_instruction_fun a b c in
-  current_addressing_mode := addr_mode ;
+  (* Reserved bit always on *) 
   processor_status := !processor_status lor (get_flag_mask `Reserved) ;
   ins_fun arg
 
