@@ -1,5 +1,5 @@
 # 6502-ml
-6502 chip family emulator in OCaml
+6502 chip family simulator in OCaml
 
 Exposed as a library through `cpu.mli`  
 `jbuilder build unit_test.exe` creates `_build/default/unit_test.exe` which takes a path to a ROM in argument and launch the CPU on it, beginning at `PC=0x400`, stopping when encountering a trap.  
