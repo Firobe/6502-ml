@@ -16,7 +16,7 @@ let main =
     while !continue do
         count := !count + 1 ;
         let back = !Cpu.program_counter in
-        Cpu.next_instr () ;
+        Cpu.fetch_instr () ;
         if back = !Cpu.program_counter then
             continue := false
     done ;

@@ -2,14 +2,15 @@
 
 (* 0x000 to 0xFFFF main memory *)
 let memory = Array.make 0x10000 0x00
+let enable_decimal = true
 
 (* Registers *)
 let program_counter = ref 0x0400
-let stack_pointer = ref 0x00FF
+let stack_pointer = ref 0x00FD
 let accumulator = ref 0x00
 let index_register_x = ref 0x00
 let index_register_y = ref 0x00
-let processor_status = ref 0x00
+let processor_status = ref 0x34
 
 (* Memory wrappers *)
 class virtual memory_wrapper () = object(_)
@@ -18,9 +19,11 @@ class virtual memory_wrapper () = object(_)
     method virtual self : unit -> int
 end
 class addr_wrapper addr = object(_)
+    val baddr = addr land 0xFFFF
+
     inherit memory_wrapper ()
-    method get () = memory.(addr)
-    method set v = memory.(addr) <- v
+    method get () = memory.(baddr)
+    method set v = memory.(baddr) <- v
     method self () = addr
 end
 class ref_wrapper r = object(_)
@@ -86,16 +89,6 @@ let set_flag cond f =
 
 let get_flag f =
   if get_flag_mask f land !processor_status != 0 then 1 else 0
-
-let print_registers () =
-    Printf.printf "-------------------------------------------------\n" ;
-    Printf.printf "PC = %.4X\n%!" !program_counter ;
-    Printf.printf "SP = %.4X  ACC = %.2X  X = %.2X  Y = %.2X\n%!" !stack_pointer !accumulator
-        !index_register_x !index_register_y ;
-    Printf.printf "C=%d Z=%d I=%d D=%d B=%d V=%d N=%d\n%!"
-        (get_flag `Carry) (get_flag `Zero) (get_flag `Interrupt) (get_flag `Decimal)
-        (get_flag `Break) (get_flag `Overflow) (get_flag `Negative) ;
-    Printf.printf "-------------------------------------------------\n"
 
 let update_zero_flag v =
   set_flag (v = 0) `Zero
@@ -178,7 +171,7 @@ let dec_to_bcd d =
 
 let _ADC m =
   let v = m#get () in
-  let decimal = get_flag `Decimal = 1 in
+  let decimal = get_flag `Decimal = 1 && enable_decimal in
   let pre = if decimal then bcd_to_dec else fun x -> x in
   let post = if decimal then dec_to_bcd else fun x -> x in
   let max = if decimal then 99 else 0xFF in
@@ -196,7 +189,7 @@ let _ADC m =
 
 let _SBC m =
   let v = m#get () in
-  let c2 = if get_flag `Decimal = 1 then
+  let c2 = if get_flag `Decimal = 1 && enable_decimal then
       dec_to_bcd (100 - (bcd_to_dec v) - 1)
   else
       (v lxor 0xFF) in
@@ -261,8 +254,9 @@ let aux_branch f s v =
       - (((lnot v) + 1) land 0xFF)
       else v
   in
+  let nnv = nv land 0xFFFF in
   if get_flag f = s then
-    program_counter := !program_counter + nv
+    program_counter := !program_counter + nnv
 
 let _BCC rel = aux_branch `Carry 0 @@ rel#get ()
 let _BCS rel = aux_branch `Carry 1 @@ rel#get ()
@@ -342,30 +336,56 @@ let get_addressing_mode a b c = match b with
       | 0 -> Implicit
       | 1 -> Absolute_Y
       | 2 -> Implicit
-      | _ -> invalid_instruction ()
+      | _ -> invalid_instruction () (* Implicit *)
     end
   | 7 -> if c = 2 && a = 5 then Absolute_Y else Absolute_X
   | _ -> invalid_instruction ()
 
 let get_instruction_fun a b c = match (c, a) with
-    | 0, 0 -> List.nth [_BRK; _NOP; _PHP; _NOP; _BPL; _NOP; _CLC] b
-    | 0, 1 -> List.nth [_JSR; _BIT; _PLP; _BIT; _BMI; _NOP; _SEC] b
-    | 0, 2 -> List.nth [_RTI; _NOP; _PHA; _JMP; _BVC; _NOP; _CLI] b
-    | 0, 3 -> List.nth [_RTS; _NOP; _PLA; _JMP; _BVS; _NOP; _SEI] b
-    | 0, 4 -> List.nth [_NOP; _STY; _DEY; _STY; _BCC; _STY; _TYA] b
+    | 0, 0 -> List.nth [_BRK; _NOP; _PHP; _NOP; _BPL; _NOP; _CLC; _NOP] b
+    | 0, 1 -> List.nth [_JSR; _BIT; _PLP; _BIT; _BMI; _NOP; _SEC; _NOP] b
+    | 0, 2 -> List.nth [_RTI; _NOP; _PHA; _JMP; _BVC; _NOP; _CLI; _NOP] b
+    | 0, 3 -> List.nth [_RTS; _NOP; _PLA; _JMP; _BVS; _NOP; _SEI; _NOP] b
+    | 0, 4 -> List.nth [_NOP; _STY; _DEY; _STY; _BCC; _STY; _TYA; _NOP] b
     | 0, 5 -> List.nth [_LDY; _LDY; _TAY; _LDY; _BCS; _LDY; _CLV; _LDY] b
-    | 0, 6 -> List.nth [_CPY; _CPY; _INY; _CPY; _BNE; _NOP; _CLD] b
-    | 0, 7 -> List.nth [_CPX; _CPX; _INX; _CPX; _BEQ; _NOP; _SED] b
-    | 1, 0 -> _ORA | 1, 1 -> _AND | 1, 2 -> _EOR | 1, 3 -> _ADC
-    | 1, 4 -> _STA | 1, 5 -> _LDA | 1, 6 -> _CMP | 1, 7 -> _SBC
-    | 2, 0 -> _ASL | 2, 1 -> _ROL | 2, 2 -> _LSR | 2, 3 -> _ROR
-    | 2, 4 -> List.nth [_NOP; _STX; _TXA; _STX; _NOP; _STX; _TXS] b
+    | 0, 6 -> List.nth [_CPY; _CPY; _INY; _CPY; _BNE; _NOP; _CLD; _NOP] b
+    | 0, 7 -> List.nth [_CPX; _CPX; _INX; _CPX; _BEQ; _NOP; _SED; _NOP] b
+    | 1, 0 -> _ORA
+    | 1, 1 -> _AND
+    | 1, 2 -> _EOR
+    | 1, 3 -> _ADC
+    | 1, 4 -> if b = 2 then _NOP else _STA
+    | 1, 5 -> _LDA
+    | 1, 6 -> _CMP
+    | 1, 7 -> _SBC
+    | 2, 0 -> List.nth [_NOP; _ASL; _ASL; _ASL; _NOP; _ASL; _NOP; _ASL] b
+    | 2, 1 -> List.nth [_NOP; _ROL; _ROL; _ROL; _NOP; _ROL; _NOP; _ROL] b
+    | 2, 2 -> List.nth [_NOP; _LSR; _LSR; _LSR; _NOP; _LSR; _NOP; _LSR] b
+    | 2, 3 -> List.nth [_NOP; _ROR; _ROR; _ROR; _NOP; _ROR; _NOP; _ROR] b
+    | 2, 4 -> List.nth [_NOP; _STX; _TXA; _STX; _NOP; _STX; _TXS; _NOP] b
     | 2, 5 -> List.nth [_LDX; _LDX; _TAX; _LDX; _NOP; _LDX; _TSX; _LDX] b
     | 2, 6 -> List.nth [_NOP; _DEC; _DEX; _DEC; _NOP; _DEC; _NOP; _DEC] b
-    | 2, 7 -> if b = 2 then _NOP else _INC
+    | 2, 7 -> List.nth [_NOP; _INC; _NOP; _INC; _NOP; _INC; _NOP; _INC] b
     | _ -> assert false
 
-let next_instr ?debug:(debug=false) () =
+let print_state () =
+    let opcode = memory.(!program_counter) in
+    let a = shift_and_mask opcode 5 0x7 in
+    let b = shift_and_mask opcode 2 0x7 in
+    let c = shift_and_mask opcode 0 0x3 in
+    let size = addressing_mode_size @@ get_addressing_mode a b c in
+    Printf.printf "%.4X  " !program_counter ;
+    for i = 0 to size - 1 do Printf.printf "%.2X " memory.(!program_counter + i) done ;
+    Printf.printf "\t\t\t A:%.2X X:%.2X Y:%.2X P:%.2X SP:%.2X\n%!"
+        !accumulator !index_register_x !index_register_y !processor_status !stack_pointer
+    (*
+    Printf.printf "C=%d Z=%d I=%d D=%d B=%d V=%d N=%d\n%!"
+        (get_flag `Carry) (get_flag `Zero) (get_flag `Interrupt) (get_flag `Decimal)
+        (get_flag `Break) (get_flag `Overflow) (get_flag `Negative) ;
+    Printf.printf "-------------------------------------------------\n"*)
+
+
+let fetch_instr () =
   let opcode = memory.(!program_counter) in
   let a = shift_and_mask opcode 5 0x7 in
   let b = shift_and_mask opcode 2 0x7 in
@@ -375,11 +395,6 @@ let next_instr ?debug:(debug=false) () =
   let v1 = memory.(b1) in
   let v2 = memory.(b2) in
   let v12 = v1 lor (v2 lsl 8) in
-  if debug then (
-      Printf.printf "Executing instruction : " ;
-      Printf.printf "%.2X" opcode ;
-      Printf.printf " %.2X %.2X\n" v1 v2
-  ) ;
   let addr_mode = get_addressing_mode a b c in
   let mode_size = addressing_mode_size addr_mode in
   program_counter := !program_counter + mode_size ;
@@ -394,12 +409,20 @@ let next_instr ?debug:(debug=false) () =
   | Absolute -> new addr_wrapper v12
   | Absolute_X -> new addr_wrapper (!index_register_x + v12)
   | Absolute_Y -> new addr_wrapper (!index_register_y + v12)
-  | Indirect -> new addr_wrapper (memory.(v12) lor (memory.(v12 + 1) lsl 8))
+  | Indirect ->
+          (* Second byte of target wrap around in page *)
+          let sto_addr_hi = ((v12 + 1) land 0xFF) lor (v12 land 0xFF00) in
+          new addr_wrapper (memory.(v12) lor (memory.(sto_addr_hi) lsl 8))
   | Indexed_Indirect (*X*) -> 
           let sto_addr = (v1 + !index_register_x) land 0xFF in
-          new addr_wrapper (memory.(sto_addr) lor (memory.(sto_addr + 1) lsl 8))
+          (* Second byte of target wrap around in zero page *)
+          let sto_addr_hi = (sto_addr + 1) land 0xFF in
+          let sto = memory.(sto_addr) lor (memory.(sto_addr_hi) lsl 8) in
+          new addr_wrapper sto
   | Indirect_Indexed (*Y*) ->
-          let sto = memory.(v1) lor (memory.(v1 + 1) lsl 8) in
+          (* Second byte of target wrap around in zero page *)
+          let sto_addr_hi = (v1 + 1) land 0xFF in
+          let sto = memory.(v1) lor (memory.(sto_addr_hi) lsl 8) in
           new addr_wrapper (sto + !index_register_y)
   end in
   let ins_fun = get_instruction_fun a b c in
