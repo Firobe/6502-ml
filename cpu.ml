@@ -2,11 +2,11 @@
 
 (* 0x000 to 0xFFFF main memory *)
 let memory = Array.make 0x10000 0x00
-let enable_decimal = true
+let enable_decimal = ref true
 
 (* Registers *)
 let program_counter = ref 0x0400
-let stack_pointer = ref 0x00FD
+let stack_pointer = ref 0x00FF
 let accumulator = ref 0x00
 let index_register_x = ref 0x00
 let index_register_y = ref 0x00
@@ -171,7 +171,7 @@ let dec_to_bcd d =
 
 let _ADC m =
   let v = m#get () in
-  let decimal = get_flag `Decimal = 1 && enable_decimal in
+  let decimal = get_flag `Decimal = 1 && !enable_decimal in
   let pre = if decimal then bcd_to_dec else fun x -> x in
   let post = if decimal then dec_to_bcd else fun x -> x in
   let max = if decimal then 99 else 0xFF in
@@ -189,7 +189,7 @@ let _ADC m =
 
 let _SBC m =
   let v = m#get () in
-  let c2 = if get_flag `Decimal = 1 && enable_decimal then
+  let c2 = if get_flag `Decimal = 1 && !enable_decimal then
       dec_to_bcd (100 - (bcd_to_dec v) - 1)
   else
       (v lxor 0xFF) in
@@ -254,9 +254,9 @@ let aux_branch f s v =
       - (((lnot v) + 1) land 0xFF)
       else v
   in
-  let nnv = nv land 0xFFFF in
+  let nnv = (!program_counter + nv) land 0xFFFF in
   if get_flag f = s then
-    program_counter := !program_counter + nnv
+    program_counter := nnv
 
 let _BCC rel = aux_branch `Carry 0 @@ rel#get ()
 let _BCS rel = aux_branch `Carry 1 @@ rel#get ()
