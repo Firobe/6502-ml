@@ -7,9 +7,7 @@ let load_rom path =
 
 let main =
     let count = ref 0 in
-    if Array.length Sys.argv > 1 then
-        load_rom Sys.argv.(1)
-    else load_rom "test.bin" ;
+    load_rom "test.bin" ;
     let continue = ref true in
     Cpu.program_counter := 0x400 ;
     Cpu.processor_status := 0x00 ;

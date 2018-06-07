@@ -10,7 +10,7 @@ let stack_pointer = ref 0x00FF
 let accumulator = ref 0x00
 let index_register_x = ref 0x00
 let index_register_y = ref 0x00
-let processor_status = ref 0x34
+let processor_status = ref 0x24
 
 (* Memory wrappers *)
 class virtual memory_wrapper () = object(_)
@@ -109,8 +109,8 @@ let aux_LD r (m : memory_wrapper) =
   r := v ;
   update_NZ v
 
-let _LDA = aux_LD accumulator
-let _LDX = aux_LD index_register_x
+let _LDA m = aux_LD accumulator m
+let _LDX m = aux_LD index_register_x m
 let _LDY = aux_LD index_register_y
 
 let aux_ST (m: memory_wrapper) v =
@@ -119,6 +119,7 @@ let aux_ST (m: memory_wrapper) v =
 let _STA m = aux_ST m !accumulator
 let _STX m = aux_ST m !index_register_x
 let _STY m = aux_ST m !index_register_y
+let _SAX m = aux_ST m (!accumulator land !index_register_x)
 
 (* Register transfers *)
 let aux_T f t = 
@@ -143,7 +144,10 @@ let _TXS _ = stack_pointer := !index_register_x
 let _PHA _ = aux_push !accumulator
 let _PHP _ = aux_push (!processor_status lor get_flag_mask `Break)
 let _PLA _ = aux_pull accumulator ; update_NZ !accumulator
-let _PLP _ = aux_pull processor_status
+let _PLP _ =
+    aux_pull processor_status ;
+    set_flag false `Break ;
+    set_flag true `Reserved
 
 (* Logical *)
 let aux_logic f =
@@ -292,6 +296,8 @@ let _NOP _ = ()
 
 let _RTI _ =
   aux_pull processor_status ;
+  set_flag false `Break ;
+  set_flag true `Reserved ;
   let lo = ref 0 in
   let hi = ref 0 in
   aux_pull lo ;
@@ -302,46 +308,54 @@ let shift_and_mask v dec mask =
     let target = v lsr dec in
     target land mask
 
-let invalid_instruction () =
-    Printf.printf "Invalid instruction %.2X\n" memory.(!program_counter) ;
+let invalid_instruction a b c =
+    Printf.printf "Invalid instruction %.2X %d %d %d\n" memory.(!program_counter)
+        a b c ;
     assert false
 
 (* Addressing and instruction dispatch *)
-let get_addressing_mode a b c = match b with
+let rec get_addressing_mode a b c =
+    if c = 3 then (
+        if b = 5 || b = 7 then
+            get_addressing_mode a b (c-1)
+        else
+            get_addressing_mode a b (c-2)
+    )
+    else match b with
   | 0 -> begin match c with
       | 0 -> begin match a with
           | 1 -> Absolute
-          | a when a > 4 -> Immediate
+          | a when a >= 4 -> Immediate
           | _ -> Implicit
         end
       | 1 -> Indexed_Indirect (* x, ind *)
       | 2 -> Immediate
-      | _ -> invalid_instruction ()
+      | _ -> invalid_instruction a b c
     end
   | 1 -> Zero_Page
   | 2 -> begin match c with
       | 0 -> Implicit
       | 1 -> Immediate
       | 2 -> if a < 4 then Accumulator else Implicit
-      | _ -> invalid_instruction ()
+      | _ -> invalid_instruction a b c
     end
   | 3 -> if a = 3 && c = 0 then Indirect else Absolute
   | 4 -> begin match c with
       | 0 -> Relative
       | 1 -> Indirect_Indexed (* ind, y *)
-      | _ -> invalid_instruction ()
+      | _ -> invalid_instruction a b c
     end
   | 5 -> if a < 4 || a > 5 || c != 2 then Zero_Page_X else Zero_Page_Y
   | 6 -> begin match c with
       | 0 -> Implicit
       | 1 -> Absolute_Y
       | 2 -> Implicit
-      | _ -> invalid_instruction () (* Implicit *)
+      | _ -> invalid_instruction a b c (* Implicit *)
     end
   | 7 -> if c = 2 && a = 5 then Absolute_Y else Absolute_X
-  | _ -> invalid_instruction ()
+  | _ -> invalid_instruction a b c
 
-let get_instruction_fun a b c = match (c, a) with
+let rec get_instruction_fun a b c = match (c, a) with
     | 0, 0 -> List.nth [_BRK; _NOP; _PHP; _NOP; _BPL; _NOP; _CLC; _NOP] b
     | 0, 1 -> List.nth [_JSR; _BIT; _PLP; _BIT; _BMI; _NOP; _SEC; _NOP] b
     | 0, 2 -> List.nth [_RTI; _NOP; _PHA; _JMP; _BVC; _NOP; _CLI; _NOP] b
@@ -362,10 +376,22 @@ let get_instruction_fun a b c = match (c, a) with
     | 2, 1 -> List.nth [_NOP; _ROL; _ROL; _ROL; _NOP; _ROL; _NOP; _ROL] b
     | 2, 2 -> List.nth [_NOP; _LSR; _LSR; _LSR; _NOP; _LSR; _NOP; _LSR] b
     | 2, 3 -> List.nth [_NOP; _ROR; _ROR; _ROR; _NOP; _ROR; _NOP; _ROR] b
-    | 2, 4 -> List.nth [_NOP; _STX; _TXA; _STX; _NOP; _STX; _TXS; _NOP] b
-    | 2, 5 -> List.nth [_LDX; _LDX; _TAX; _LDX; _NOP; _LDX; _TSX; _LDX] b
-    | 2, 6 -> List.nth [_NOP; _DEC; _DEX; _DEC; _NOP; _DEC; _NOP; _DEC] b
+    | 2, 4 -> List.nth [_STX; _STX; _TXA; _STX; _NOP; _STX; _TXS; _NOP] b
+    | 2, 5 -> List.nth [_LDX; _LDX; _TAX; _LDX; _LDX; _LDX; _TSX; _LDX] b
+    | 2, 6 -> List.nth [_DEC; _DEC; _DEX; _DEC; _DEC; _DEC; _NOP; _DEC] b
     | 2, 7 -> List.nth [_NOP; _INC; _NOP; _INC; _NOP; _INC; _NOP; _INC] b
+    (* Unofficial *)
+    | 3, 4 when b = 0 || b = 1 || b = 3 || b = 5  -> _SAX
+    | 3, 0 when b != 2  && b != 1 -> get_instruction_fun a 1 c
+    | 3, 1 when b != 2  && b != 1 -> get_instruction_fun a 1 c
+    | 3, 2 when b != 2  && b != 1 -> get_instruction_fun a 1 c
+    | 3, 3 when b != 2  && b != 1 -> get_instruction_fun a 1 c
+    | 3, 6 when b != 2  && b != 1 -> get_instruction_fun a 1 c
+    | 3, 7 when b != 2 && b != 1 -> get_instruction_fun a 1 c
+    | 3, _ ->
+        let f1 = get_instruction_fun a b (c-1) in
+        let f2 = get_instruction_fun a b (c-2) in
+        fun m -> f1 m; f2 m
     | _ -> assert false
 
 let print_state () =
@@ -378,12 +404,6 @@ let print_state () =
     for i = 0 to size - 1 do Printf.printf "%.2X " memory.(!program_counter + i) done ;
     Printf.printf "\t\t\t A:%.2X X:%.2X Y:%.2X P:%.2X SP:%.2X\n%!"
         !accumulator !index_register_x !index_register_y !processor_status !stack_pointer
-    (*
-    Printf.printf "C=%d Z=%d I=%d D=%d B=%d V=%d N=%d\n%!"
-        (get_flag `Carry) (get_flag `Zero) (get_flag `Interrupt) (get_flag `Decimal)
-        (get_flag `Break) (get_flag `Overflow) (get_flag `Negative) ;
-    Printf.printf "-------------------------------------------------\n"*)
-
 
 let fetch_instr () =
   let opcode = memory.(!program_counter) in
