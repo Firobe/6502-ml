@@ -9,3 +9,4 @@ val enable_decimal : bool ref
 
 val fetch_instr : unit -> unit
 val print_state : unit -> unit
+val reset : unit -> unit

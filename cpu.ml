@@ -12,6 +12,15 @@ let index_register_x = ref 0x00
 let index_register_y = ref 0x00
 let processor_status = ref 0x24
 
+let reset () =
+    Array.fill memory 0 0x10000 0x0 ;
+    enable_decimal := true ;
+    program_counter := 0x0400 ;
+    accumulator := 0x0 ;
+    index_register_x := 0x0 ;
+    index_register_y := 0x0 ;
+    processor_status := 0x24
+
 (* Memory wrappers *)
 class virtual memory_wrapper () = object(_)
     method virtual get : unit -> int
