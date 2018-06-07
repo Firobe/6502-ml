@@ -41,4 +41,4 @@ let test2 =
     if Cpu.memory.(2) = 0 && Cpu.memory.(3) = 0 then
         Printf.printf "Advanced self-test ... OK (%d cycles)\n" !count
     else
-        Printf.printf "Advanced self-test ... KO (errors %.2X %.2X)\n" Cpu.memory.(2) Cpu.memory.(3);
+        Printf.printf "Advanced self-test ... KO (errors %.2X %.2X)\n" Cpu.memory.(2) Cpu.memory.(3)
