@@ -259,7 +259,7 @@ let _RTS _ =
     aux_pull lo ;
     aux_pull hi ;
     program_counter := !lo lor (!hi lsl 8) ;
-    program_counter := !program_counter + 1
+    incr program_counter
 
 (* Branches *)
 let aux_branch f s v =

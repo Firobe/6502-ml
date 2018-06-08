@@ -13,7 +13,7 @@ let test1 =
     Cpu.program_counter := 0x400 ;
     Cpu.processor_status := 0x00 ;
     while !continue do
-        count := !count + 1 ;
+        incr count ;
         let back = !Cpu.program_counter in
         Cpu.fetch_instr () ;
         if back = !Cpu.program_counter then
@@ -33,7 +33,7 @@ let test2 =
     Cpu.processor_status := 0x24 ;
     Cpu.program_counter := 0xC000 ;
     while !continue do
-        count := !count + 1 ;
+        incr count ;
         Cpu.fetch_instr () ;
         if !Cpu.program_counter = 0xC66E then
             continue := false
