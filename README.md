@@ -7,6 +7,7 @@ Exposed as a library through `cpu.mli`
 The CPU passes all functional tests of [Klaus Dormann's test suite](https://github.com/Klaus2m5/6502_65C02_functional_tests) (`klaus.bin` is an assembled of `6502_functional_test.a65) and the [Nestest ROM](http://www.qmtpro.com/~nes/misc/nestest.txt)  
 
 It's zero page starts at address `0x0000`  
+Cycles count is accurate even for supported unofficial instructions, and tested  
 
 Great ressources used :
 - http://www.6502.org/tutorials/

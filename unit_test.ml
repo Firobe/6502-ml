@@ -33,11 +33,11 @@ let test2 () =
     Cpu.processor_status := 0x24 ;
     Cpu.program_counter := 0xC000 ;
     while !continue do
+        if !Cpu.program_counter = 0xC66E then
+            continue := false ;
         incr count ;
         Cpu.print_state () ;
-        Cpu.fetch_instr () ;
-        if !Cpu.program_counter = 0xC66E then
-            continue := false
+        Cpu.fetch_instr ()
     done ;
     if Cpu.memory.(2) = 0 && Cpu.memory.(3) = 0 then
         Printf.printf "Advanced self-test ... OK (%d cycles)\n" !count

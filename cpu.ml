@@ -285,7 +285,7 @@ let aux_branch f s v =
   let nnv = (!program_counter + nv) land 0xFFFF in
   if get_flag f = s then (
       let cp = if (nnv land 0xFF00) != (!program_counter land 0xFF00)
-        then 2 else 0 in
+        then 1 else 0 in
       cycle_count := !cycle_count + (1 + cp) * 3 ;
     program_counter := nnv
   )
@@ -307,6 +307,8 @@ let _CLV = gen_instr "CLV" @@ fun _ ->  set_flag false `Overflow
 let _SEC = gen_instr "SEC" @@ fun _ ->  set_flag true `Carry
 let _SED = gen_instr "SED" @@ fun _ ->  set_flag true `Decimal
 let _SEI = gen_instr "SEI" @@ fun _ ->  set_flag true `Interrupt
+
+let _UNO = gen_instr "UNF" @@ fun _ -> ()
 
 (* System functions *)
 let _BRK = gen_instr "BRK" @@ fun _ ->
@@ -384,14 +386,14 @@ let rec get_addressing_mode a b c =
   | _ -> invalid_instruction a b c
 
 let rec get_instruction_fun a b c = match (c, a) with
-    | 0, 0 -> List.nth [_BRK; _NOP; _PHP; _NOP; _BPL; _NOP; _CLC; _NOP] b
-    | 0, 1 -> List.nth [_JSR; _BIT; _PLP; _BIT; _BMI; _NOP; _SEC; _NOP] b
-    | 0, 2 -> List.nth [_RTI; _NOP; _PHA; _JMP; _BVC; _NOP; _CLI; _NOP] b
-    | 0, 3 -> List.nth [_RTS; _NOP; _PLA; _JMP; _BVS; _NOP; _SEI; _NOP] b
-    | 0, 4 -> List.nth [_NOP; _STY; _DEY; _STY; _BCC; _STY; _TYA; _NOP] b
+    | 0, 0 -> List.nth [_BRK; _UNO; _PHP; _UNO; _BPL; _UNO; _CLC; _UNO] b
+    | 0, 1 -> List.nth [_JSR; _BIT; _PLP; _BIT; _BMI; _UNO; _SEC; _UNO] b
+    | 0, 2 -> List.nth [_RTI; _UNO; _PHA; _JMP; _BVC; _UNO; _CLI; _UNO] b
+    | 0, 3 -> List.nth [_RTS; _UNO; _PLA; _JMP; _BVS; _UNO; _SEI; _UNO] b
+    | 0, 4 -> List.nth [_UNO; _STY; _DEY; _STY; _BCC; _STY; _TYA; _UNO] b
     | 0, 5 -> List.nth [_LDY; _LDY; _TAY; _LDY; _BCS; _LDY; _CLV; _LDY] b
-    | 0, 6 -> List.nth [_CPY; _CPY; _INY; _CPY; _BNE; _NOP; _CLD; _NOP] b
-    | 0, 7 -> List.nth [_CPX; _CPX; _INX; _CPX; _BEQ; _NOP; _SED; _NOP] b
+    | 0, 6 -> List.nth [_CPY; _CPY; _INY; _CPY; _BNE; _UNO; _CLD; _UNO] b
+    | 0, 7 -> List.nth [_CPX; _CPX; _INX; _CPX; _BEQ; _UNO; _SED; _UNO] b
     | 1, 0 -> _ORA
     | 1, 1 -> _AND
     | 1, 2 -> _EOR
@@ -422,9 +424,9 @@ let rec get_instruction_fun a b c = match (c, a) with
         gen_instr "UNF" @@ fun m -> f1 m; f2 m
     | _ -> assert false
 
-let get_instr_length ins mode page_crossed = 
+let get_instr_length ins mode page_crossed a b c = 
   let sup = ref 0 in
-  let template = match ins.name with
+  let rec get_template ins page_crossed a b c = match ins.name with
     (* Impl, Acc, Imm, ZP, ZPX, ZPY, RLT, ABS, ABSX, ABSY, IND, INDX, INDY *)
     | "AND" | "EOR" | "ORA" | "BIT" | "ADC" | "SBC"
     | "CMP" | "CPX" | "CPY"
@@ -432,7 +434,8 @@ let get_instr_length ins mode page_crossed =
       if mode = Absolute_X || mode = Absolute_Y || mode = Indirect_Indexed then
         sup := if page_crossed then 1 else 0 ;
                                 [0; 0; 2; 3; 4; 4; 0; 4; 4; 4; 0; 6; 5]
-    | "STA" | "STX" | "STY" ->  [0; 0; 0; 3; 4; 4; 0; 4; 5; 5; 0; 6; 6]
+    | "STA" | "STX"
+    | "SAX" | "STY" ->          [0; 0; 0; 3; 4; 4; 0; 4; 5; 5; 0; 6; 6]
     | "TAX" | "TAY" | "TXA" | "INX" | "INY" | "DEX"
     | "DEY" | "CLC" | "CLD" | "CLI" | "CLV" | "SEC"
     | "SED" | "SEI" | "NOP"
@@ -446,8 +449,14 @@ let get_instr_length ins mode page_crossed =
     | "JMP" ->                  [0; 0; 0; 0; 0; 0; 0; 3; 0; 0; 5; 0; 0]
     | "BCC" | "BCS" | "BEQ" | "BMI" | "BNE" | "BPL"
     | "BVC" | "BVS" ->          [0; 0; 0; 0; 0; 0; 2; 0; 0; 0; 0; 0; 0]
-    | s -> Printf.printf "ayyyy %s\n" s; assert false
-  in let v = match mode with
+    | "UNF" when c = 3 && (a >= 6 || a <= 3) -> 
+            [0; 0; 2; 5; 6; 0; 0; 6; 7; 7; 0; 8; 8]
+    | "UNF" ->
+            let equiv = get_instruction_fun 5 b (if c >= 2 then c - 2 else 0) in
+            get_template equiv page_crossed a b c
+    | _ -> assert false
+  in let template = get_template ins page_crossed a b c in
+  let v = match mode with
       | Implicit -> 0 | Accumulator -> 1 | Immediate -> 2
       | Zero_Page -> 3 | Zero_Page_X -> 4 | Zero_Page_Y -> 5
       | Relative -> 6 | Absolute -> 7 | Absolute_X -> 8
@@ -463,7 +472,8 @@ let print_state () =
     let size = addressing_mode_size @@ get_addressing_mode a b c in
     Printf.printf "%.4X  " !program_counter ;
     for i = 0 to size - 1 do Printf.printf "%.2X " memory.(!program_counter + i) done ;
-    Printf.printf "\t%s" (get_instruction_fun a b c).name ;
+    let name = (get_instruction_fun a b c).name in
+    Printf.printf "\t%s" name ;
     Printf.printf "\t\t A:%.2X X:%.2X Y:%.2X P:%.2X SP:%.2X CYC:%3d\n%!"
         !accumulator !index_register_x !index_register_y !processor_status
         !stack_pointer (!cycle_count mod 341)
@@ -520,7 +530,7 @@ let fetch_instr () =
         new addr_wrapper (sto + !index_register_y)
   end in
   let ins_fun = get_instruction_fun a b c in
-  let cycles = get_instr_length ins_fun addr_mode !page_crossed in
+  let cycles = get_instr_length ins_fun addr_mode !page_crossed a b c in
   cycle_count := !cycle_count + 3 * cycles ;
   (* Reserved bit always on *) 
   processor_status := !processor_status lor (get_flag_mask `Reserved) ;
