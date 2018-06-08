@@ -34,6 +34,7 @@ let test2 () =
     Cpu.program_counter := 0xC000 ;
     while !continue do
         incr count ;
+        Cpu.print_state () ;
         Cpu.fetch_instr () ;
         if !Cpu.program_counter = 0xC66E then
             continue := false

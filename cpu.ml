@@ -21,7 +21,8 @@ let reset () =
     accumulator := 0x0 ;
     index_register_x := 0x0 ;
     index_register_y := 0x0 ;
-    processor_status := 0x24
+    processor_status := 0x24 ;
+    cycle_count := 0
 
 (* Memory wrappers *)
 class virtual memory_wrapper () = object(_)
@@ -282,8 +283,12 @@ let aux_branch f s v =
       else v
   in
   let nnv = (!program_counter + nv) land 0xFFFF in
-  if get_flag f = s then
+  if get_flag f = s then (
+      let cp = if (nnv land 0xFF00) != (!program_counter land 0xFF00)
+        then 2 else 0 in
+      cycle_count := !cycle_count + (1 + cp) * 3 ;
     program_counter := nnv
+  )
 
 let _BCC = gen_instr "BCC" @@ fun rel -> aux_branch `Carry 0 @@ rel#get ()
 let _BCS = gen_instr "BCS" @@ fun rel -> aux_branch `Carry 1 @@ rel#get ()
@@ -417,6 +422,39 @@ let rec get_instruction_fun a b c = match (c, a) with
         gen_instr "UNF" @@ fun m -> f1 m; f2 m
     | _ -> assert false
 
+let get_instr_length ins mode page_crossed = 
+  let sup = ref 0 in
+  let template = match ins.name with
+    (* Impl, Acc, Imm, ZP, ZPX, ZPY, RLT, ABS, ABSX, ABSY, IND, INDX, INDY *)
+    | "AND" | "EOR" | "ORA" | "BIT" | "ADC" | "SBC"
+    | "CMP" | "CPX" | "CPY"
+    | "LDA" | "LDX" | "LDY" ->
+      if mode = Absolute_X || mode = Absolute_Y || mode = Indirect_Indexed then
+        sup := if page_crossed then 1 else 0 ;
+                                [0; 0; 2; 3; 4; 4; 0; 4; 4; 4; 0; 6; 5]
+    | "STA" | "STX" | "STY" ->  [0; 0; 0; 3; 4; 4; 0; 4; 5; 5; 0; 6; 6]
+    | "TAX" | "TAY" | "TXA" | "INX" | "INY" | "DEX"
+    | "DEY" | "CLC" | "CLD" | "CLI" | "CLV" | "SEC"
+    | "SED" | "SEI" | "NOP"
+    | "TYA" | "TSX" | "TXS" ->  [2; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0]
+    | "PHA" | "PHP" ->          [3; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0]
+    | "PLA" | "PLP" ->          [4; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0]
+    | "JSR" | "RTS" | "RTI" ->  [6; 0; 0; 0; 0; 0; 0; 6; 0; 0; 0; 0; 0]
+    | "BRK" ->                  [7; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0]
+    | "INC" | "DEC" | "ASL" | "LSR" | "ROR" | "ROL" ->
+                                [0; 2; 0; 5; 6; 0; 0; 6; 7; 0; 0; 0; 0]
+    | "JMP" ->                  [0; 0; 0; 0; 0; 0; 0; 3; 0; 0; 5; 0; 0]
+    | "BCC" | "BCS" | "BEQ" | "BMI" | "BNE" | "BPL"
+    | "BVC" | "BVS" ->          [0; 0; 0; 0; 0; 0; 2; 0; 0; 0; 0; 0; 0]
+    | s -> Printf.printf "ayyyy %s\n" s; assert false
+  in let v = match mode with
+      | Implicit -> 0 | Accumulator -> 1 | Immediate -> 2
+      | Zero_Page -> 3 | Zero_Page_X -> 4 | Zero_Page_Y -> 5
+      | Relative -> 6 | Absolute -> 7 | Absolute_X -> 8
+      | Absolute_Y -> 9 | Indirect -> 10 | Indexed_Indirect -> 11
+      | Indirect_Indexed -> 12
+  in (List.nth template v) + !sup
+
 let print_state () =
     let opcode = memory.(!program_counter) in
     let a = shift_and_mask opcode 5 0x7 in
@@ -426,9 +464,11 @@ let print_state () =
     Printf.printf "%.4X  " !program_counter ;
     for i = 0 to size - 1 do Printf.printf "%.2X " memory.(!program_counter + i) done ;
     Printf.printf "\t%s" (get_instruction_fun a b c).name ;
-    Printf.printf "\t\t A:%.2X X:%.2X Y:%.2X P:%.2X SP:%.2X CYC: %d\n%!"
+    Printf.printf "\t\t A:%.2X X:%.2X Y:%.2X P:%.2X SP:%.2X CYC:%3d\n%!"
         !accumulator !index_register_x !index_register_y !processor_status
-        !stack_pointer !cycle_count
+        !stack_pointer (!cycle_count mod 341)
+
+let get_page v = v lsr 8
 
 let fetch_instr () =
   let opcode = memory.(!program_counter) in
@@ -443,6 +483,7 @@ let fetch_instr () =
   let addr_mode = get_addressing_mode a b c in
   let mode_size = addressing_mode_size addr_mode in
   program_counter := !program_counter + mode_size ;
+  let page_crossed = ref false in
   let arg = begin match addr_mode with
   | Implicit -> new dummy_wrapper ()
   | Accumulator -> new ref_wrapper accumulator
@@ -452,8 +493,14 @@ let fetch_instr () =
   | Zero_Page_Y -> new addr_wrapper ((v1 + !index_register_y) land 0xFF)
   | Relative -> new addr_wrapper b1
   | Absolute -> new addr_wrapper v12
-  | Absolute_X -> new addr_wrapper (!index_register_x + v12)
-  | Absolute_Y -> new addr_wrapper (!index_register_y + v12)
+  | Absolute_X -> 
+        if get_page v12 != get_page (!index_register_x + v12) then
+          page_crossed := true ;
+        new addr_wrapper (!index_register_x + v12)
+  | Absolute_Y ->
+        if get_page v12 != get_page (!index_register_y + v12) then
+          page_crossed := true ;
+    new addr_wrapper (!index_register_y + v12)
   | Indirect ->
           (* Second byte of target wrap around in page *)
           let sto_addr_hi = ((v12 + 1) land 0xFF) lor (v12 land 0xFF00) in
@@ -466,11 +513,15 @@ let fetch_instr () =
           new addr_wrapper sto
   | Indirect_Indexed (*Y*) ->
           (* Second byte of target wrap around in zero page *)
-          let sto_addr_hi = (v1 + 1) land 0xFF in
-          let sto = memory.(v1) lor (memory.(sto_addr_hi) lsl 8) in
-          new addr_wrapper (sto + !index_register_y)
+        let sto_addr_hi = (v1 + 1) land 0xFF in
+        let sto = memory.(v1) lor (memory.(sto_addr_hi) lsl 8) in
+        if get_page sto != get_page (!index_register_y + sto) then
+            page_crossed := true ;
+        new addr_wrapper (sto + !index_register_y)
   end in
   let ins_fun = get_instruction_fun a b c in
+  let cycles = get_instr_length ins_fun addr_mode !page_crossed in
+  cycle_count := !cycle_count + 3 * cycles ;
   (* Reserved bit always on *) 
   processor_status := !processor_status lor (get_flag_mask `Reserved) ;
   ins_fun.f arg

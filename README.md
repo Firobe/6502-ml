@@ -14,4 +14,4 @@ Great ressources used :
 - http://www.obelisk.me.uk/6502/
 - https://wiki.nesdev.com/
 - http://www.masswerk.at/6502/6502_instruction_set.html
-
+- http://nesdev.com/6502_cpu.txt
