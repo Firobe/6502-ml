@@ -3,5 +3,6 @@
 (executable
 	(
 		(name unit_test)
+		(libraries (re str))
 	)
 )

@@ -286,7 +286,7 @@ let aux_branch f s v =
   if get_flag f = s then (
       let cp = if (nnv land 0xFF00) != (!program_counter land 0xFF00)
         then 1 else 0 in
-      cycle_count := !cycle_count + (1 + cp) * 3 ;
+      cycle_count := !cycle_count + 1 + cp ;
     program_counter := nnv
   )
 
@@ -476,7 +476,7 @@ let print_state () =
     Printf.printf "\t%s" name ;
     Printf.printf "\t\t A:%.2X X:%.2X Y:%.2X P:%.2X SP:%.2X CYC:%3d\n%!"
         !accumulator !index_register_x !index_register_y !processor_status
-        !stack_pointer (!cycle_count mod 341)
+        !stack_pointer (!cycle_count*3 mod 341)
 
 let get_page v = v lsr 8
 
@@ -531,7 +531,7 @@ let fetch_instr () =
   end in
   let ins_fun = get_instruction_fun a b c in
   let cycles = get_instr_length ins_fun addr_mode !page_crossed a b c in
-  cycle_count := !cycle_count + 3 * cycles ;
+  cycle_count := !cycle_count + cycles ;
   (* Reserved bit always on *) 
   processor_status := !processor_status lor (get_flag_mask `Reserved) ;
   ins_fun.f arg
