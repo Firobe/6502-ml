@@ -5,7 +5,7 @@ let load_rom path =
     let store = Bytes.sub store 0 read in
     Bytes.iteri (fun i el -> Array.set Cpu.memory (i) (int_of_char el)) store
 
-let test1 =
+let test1 () =
     Cpu.reset () ;
     let count = ref 0 in
     load_rom "test_roms/klaus.bin" ;
@@ -23,7 +23,7 @@ let test1 =
         Printf.printf "Self-test ............ OK (%d cycles)\n" !count
     else Printf.printf "Self-test ............ KO (trap at %.4X)\n" !Cpu.program_counter
 
-let test2 =
+let test2 () =
     Cpu.reset () ;
     let count = ref 0 in
     load_rom "test_roms/nestest.bin" ;
@@ -42,3 +42,7 @@ let test2 =
         Printf.printf "Advanced self-test ... OK (%d cycles)\n" !count
     else
         Printf.printf "Advanced self-test ... KO (errors %.2X %.2X)\n" Cpu.memory.(2) Cpu.memory.(3)
+
+let tests =
+  test1 () ;
+  test2 ()
