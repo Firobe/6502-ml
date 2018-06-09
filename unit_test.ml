@@ -26,7 +26,7 @@ let test2 () =
     Cpu.reset () ;
     load_rom "test_roms/nestest.nes.bin" ;
     Printf.printf "Nestest .............. " ;
-    let regexp = Str.regexp "^\\([0-9A-F]+\\).*CYC: *\\([0-9]+\\)" in
+    let regexp = Str.regexp "^\\([0-9A-F]+\\).* P:\\([0-9A-F]+\\).*CYC: *\\([0-9]+\\)" in
     let continue = ref true in
     let was_error = ref false in
     Cpu.stack_pointer := 0xFD ;
@@ -39,13 +39,18 @@ let test2 () =
         let toParse = input_line file in
         assert (Str.string_match regexp toParse 0) ;
         let correctPC = int_of_string @@ ("0x"^Str.matched_group 1 toParse) in
-        let cycleNb = int_of_string @@ Str.matched_group 2 toParse in
+        let correctP = int_of_string @@ ("0x"^Str.matched_group 2 toParse) in
+        let cycleNb = int_of_string @@ Str.matched_group 3 toParse in
         if cycleNb != (!Cpu.cycle_count * 3) mod 341 then (
             Printf.printf "KO (cycle difference)\n";
             was_error := true; continue := false
         ) ;
         if correctPC != !Cpu.program_counter then (
             Printf.printf "KO (PC difference)\n";
+            was_error := true; continue := false
+        ) ;
+        if correctP != !Cpu.processor_status then (
+            Printf.printf "KO (P status difference)\n";
             was_error := true; continue := false
         ) ;
         Cpu.fetch_instr ()
@@ -83,9 +88,12 @@ let test_rom name path =
     let outStr = String.init (end_pos - begin_pos + 1)
         (fun i -> char_of_int @@ Cpu.memory.(begin_pos + i)) in
     if outStr = "Failed" then
-        let errStr = String.init (begin_pos - 0x6004)
-            (fun i -> char_of_int @@ Cpu.memory.(0x6004 + i)) in
-        Printf.printf "KO\nFull log :\n%s\n%!" errStr
+        let errStr = String.init (end_pos - 0x6004 + 1)
+            (fun i -> 
+                let m = Cpu.memory.(0x6004 + i) in
+                char_of_int @@ (if m = 0x0A then 0x3B else m)
+            ) in
+        Printf.printf "KO (%s)\n%!" errStr
     else Printf.printf "OK\n%!"
 
 let test3 () =
