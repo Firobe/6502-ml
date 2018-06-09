@@ -1,3 +1,12 @@
+let dump_memory ?path:(path="memdump") () =
+    let file = open_out_bin (path ^ ".bin") in
+    let store = Bytes.create 0x10000 in
+    for i = 0 to (Array.length Cpu.memory) - 1 do
+        Bytes.set store i @@ char_of_int Cpu.memory.(i)
+    done ;
+    output file store 0 (Bytes.length store) ;
+    close_out file
+
 let load_rom path =
     let file = open_in_bin path in
     let store = Bytes.create 0x10000 in
@@ -94,7 +103,8 @@ let test_rom name path =
                 char_of_int @@ (if m = 0x0A then 0x3B else m)
             ) in
         Printf.printf "KO (%s)\n%!" errStr
-    else Printf.printf "OK\n%!"
+    else Printf.printf "OK\n%!" ;
+    dump_memory ()
 
 let test3 () =
     test_rom "Unit basics .........." "test_roms/instr_test/01-basics.nes.bin" ;
@@ -114,7 +124,12 @@ let test3 () =
     test_rom "Unit BRK ............." "test_roms/instr_test/15-brk.nes.bin" ;
     test_rom "Unit special ........." "test_roms/instr_test/16-special.nes.bin"
 
+let test4 () =
+    test_rom "Misc abs x wrap ......" "test_roms/instr_misc/01-abs_x_wrap.nes.bin" ;
+    test_rom "Misc branch wrap ....." "test_roms/instr_misc/02-branch_wrap.nes.bin"
+
 let tests =
   test3 () ;
+  test4 () ;
   test2 () ;
-  test1 () ;
+  test1 ()
