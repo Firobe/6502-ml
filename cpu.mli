@@ -11,3 +11,4 @@ val cycle_count : int ref
 val fetch_instr : unit -> unit
 val print_state : unit -> unit
 val reset : unit -> unit
+val init_pc : unit -> unit

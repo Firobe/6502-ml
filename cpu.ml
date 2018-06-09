@@ -24,6 +24,9 @@ let reset () =
     processor_status := 0x24 ;
     cycle_count := 0
 
+let init_pc () =
+    program_counter := (memory.(0xFFFD) lsl 8) lor memory.(0xFFFC)
+
 (* Memory wrappers *)
 class virtual memory_wrapper () = object(_)
     method virtual get : unit -> int
@@ -406,9 +409,9 @@ let rec get_instruction_fun a b c = match (c, a) with
     | 2, 1 -> List.nth [_NOP; _ROL; _ROL; _ROL; _NOP; _ROL; _NOP; _ROL] b
     | 2, 2 -> List.nth [_NOP; _LSR; _LSR; _LSR; _NOP; _LSR; _NOP; _LSR] b
     | 2, 3 -> List.nth [_NOP; _ROR; _ROR; _ROR; _NOP; _ROR; _NOP; _ROR] b
-    | 2, 4 -> List.nth [_STX; _STX; _TXA; _STX; _NOP; _STX; _TXS; _NOP] b
+    | 2, 4 -> List.nth [_NOP; _STX; _TXA; _STX; _NOP; _STX; _TXS; _UNO] b
     | 2, 5 -> List.nth [_LDX; _LDX; _TAX; _LDX; _LDX; _LDX; _TSX; _LDX] b
-    | 2, 6 -> List.nth [_DEC; _DEC; _DEX; _DEC; _DEC; _DEC; _NOP; _DEC] b
+    | 2, 6 -> List.nth [_NOP; _DEC; _DEX; _DEC; _DEC; _DEC; _NOP; _DEC] b
     | 2, 7 -> List.nth [_NOP; _INC; _NOP; _INC; _NOP; _INC; _NOP; _INC] b
     (* Unofficial *)
     | 3, 4 when b = 0 || b = 1 || b = 3 || b = 5  -> _SAX
@@ -436,21 +439,24 @@ let get_instr_length ins mode page_crossed a b c =
                                 [0; 0; 2; 3; 4; 4; 0; 4; 4; 4; 0; 6; 5]
     | "STA" | "STX"
     | "SAX" | "STY" ->          [0; 0; 0; 3; 4; 4; 0; 4; 5; 5; 0; 6; 6]
-    | "TAX" | "TAY" | "TXA" | "INX" | "INY" | "DEX"
-    | "DEY" | "CLC" | "CLD" | "CLI" | "CLV" | "SEC"
+    | "TAX" | "TAY" | "TXA"
+    | "INX" | "INY" | "DEX"
+    | "DEY" | "CLC" | "CLD"
+    | "CLI" | "CLV" | "SEC"
     | "SED" | "SEI" | "NOP"
     | "TYA" | "TSX" | "TXS" ->  [2; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0]
     | "PHA" | "PHP" ->          [3; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0]
     | "PLA" | "PLP" ->          [4; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0]
     | "JSR" | "RTS" | "RTI" ->  [6; 0; 0; 0; 0; 0; 0; 6; 0; 0; 0; 0; 0]
     | "BRK" ->                  [7; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0]
-    | "INC" | "DEC" | "ASL" | "LSR" | "ROR" | "ROL" ->
-                                [0; 2; 0; 5; 6; 0; 0; 6; 7; 0; 0; 0; 0]
+    | "INC" | "DEC" | "ASL"
+    | "LSR" | "ROR" | "ROL" ->  [0; 2; 0; 5; 6; 0; 0; 6; 7; 0; 0; 0; 0]
     | "JMP" ->                  [0; 0; 0; 0; 0; 0; 0; 3; 0; 0; 5; 0; 0]
-    | "BCC" | "BCS" | "BEQ" | "BMI" | "BNE" | "BPL"
+    | "BCC" | "BCS" | "BEQ"
+    | "BMI" | "BNE" | "BPL"
     | "BVC" | "BVS" ->          [0; 0; 0; 0; 0; 0; 2; 0; 0; 0; 0; 0; 0]
-    | "UNF" when c = 3 && (a >= 6 || a <= 3) -> 
-            [0; 0; 2; 5; 6; 0; 0; 6; 7; 7; 0; 8; 8]
+    | "UNF" when c = 3 &&
+        (a >= 6 || a <= 3) ->   [0; 0; 2; 5; 6; 0; 0; 6; 7; 7; 0; 8; 8]
     | "UNF" ->
             let equiv = get_instruction_fun 5 b (if c >= 2 then c - 2 else 0) in
             get_template equiv page_crossed a b c
