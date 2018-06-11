@@ -195,6 +195,7 @@ let dec_to_bcd d =
     let hi = d / 10 in
     lo lor (hi lsl 4)
 
+(* Addition : binary or decimal *)
 let _ADC = gen_instr "ADC" @@ fun m -> 
   let v = m#get () in
   let decimal = get_flag `Decimal = 1 && !enable_decimal in
@@ -213,6 +214,7 @@ let _ADC = gen_instr "ADC" @@ fun m ->
   accumulator := post rsum ;
   update_NZ !accumulator
 
+(* Subtraction : binary or decimal *)
 let _SBC = gen_instr "SBC" @@ fun m -> 
   let v = m#get () in
   let c2 = if get_flag `Decimal = 1 && !enable_decimal then
@@ -361,7 +363,7 @@ let rec get_addressing_mode a b c =
           | a when a >= 4 -> Immediate
           | _ -> Implicit
         end
-      | 1 -> Indexed_Indirect (* x, ind *)
+      | 1 -> Indexed_Indirect
       | 2 -> Immediate
       | _ -> invalid_instruction a b c
     end
@@ -375,7 +377,7 @@ let rec get_addressing_mode a b c =
   | 3 -> if a = 3 && c = 0 then Indirect else Absolute
   | 4 -> begin match c with
       | 0 -> Relative
-      | 1 -> Indirect_Indexed (* ind, y *)
+      | 1 -> Indirect_Indexed
       | _ -> invalid_instruction a b c
     end
   | 5 -> if a < 4 || a > 5 || c != 2 then Zero_Page_X else Zero_Page_Y
@@ -383,7 +385,7 @@ let rec get_addressing_mode a b c =
       | 0 -> Implicit
       | 1 -> Absolute_Y
       | 2 -> Implicit
-      | _ -> invalid_instruction a b c (* Implicit *)
+      | _ -> invalid_instruction a b c
     end
   | 7 -> if c = 2 && a = 5 then Absolute_Y else Absolute_X
   | _ -> invalid_instruction a b c
@@ -539,6 +541,6 @@ let fetch_instr () =
   let cycles = get_instr_length ins_fun addr_mode !page_crossed a b c in
   cycle_count := !cycle_count + cycles ;
   (* Reserved bit always on *) 
-  processor_status := !processor_status lor (get_flag_mask `Reserved) ;
+  set_flag true `Reserved ;
   ins_fun.f arg
 

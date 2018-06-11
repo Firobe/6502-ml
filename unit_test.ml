@@ -51,15 +51,15 @@ let test2 () =
         let correctP = int_of_string @@ ("0x"^Str.matched_group 2 toParse) in
         let cycleNb = int_of_string @@ Str.matched_group 3 toParse in
         if cycleNb != (!Cpu.cycle_count * 3) mod 341 then (
-            Printf.printf "KO (cycle difference)\n";
+            Printf.printf "KO (cycle difference)\n%!";
             was_error := true; continue := false
         ) ;
         if correctPC != !Cpu.program_counter then (
-            Printf.printf "KO (PC difference)\n";
+            Printf.printf "KO (PC difference)\n%!";
             was_error := true; continue := false
         ) ;
         if correctP != !Cpu.processor_status then (
-            Printf.printf "KO (P status difference)\n";
+            Printf.printf "KO (P status difference)\n%!";
             was_error := true; continue := false
         ) ;
         Cpu.fetch_instr ()
