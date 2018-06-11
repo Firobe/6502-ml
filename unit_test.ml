@@ -103,8 +103,7 @@ let test_rom name path =
                 char_of_int @@ (if m = 0x0A then 0x3B else m)
             ) in
         Printf.printf "KO (%s)\n%!" errStr
-    else Printf.printf "OK\n%!" ;
-    dump_memory ()
+    else Printf.printf "OK\n%!"
 
 let test3 () =
     test_rom "Unit basics .........." "test_roms/instr_test/01-basics.nes.bin" ;
@@ -128,8 +127,13 @@ let test4 () =
     test_rom "Misc abs x wrap ......" "test_roms/instr_misc/01-abs_x_wrap.nes.bin" ;
     test_rom "Misc branch wrap ....." "test_roms/instr_misc/02-branch_wrap.nes.bin"
 
+let test5 () =
+    test_rom "Timing instr ........." "test_roms/instr_timing/1-instr_timing.nes.bin" ;
+    test_rom "Timing branches ......" "test_roms/instr_timing/2-branch-timing.nes.bin"
+
 let tests =
   test3 () ;
   test4 () ;
   test2 () ;
-  test1 ()
+  test1 () ;
+(*   test5 () *)
