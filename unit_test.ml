@@ -132,8 +132,8 @@ let test5 () =
     test_rom "Timing branches ......" "test_roms/instr_timing/2-branch-timing.nes.bin"
 
 let tests =
-  test3 () ;
-  test4 () ;
-  test2 () ;
   test1 () ;
+  test4 () ;
+  test3 ()
+(*   test2 () ; *)
 (*   test5 () *)
