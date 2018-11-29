@@ -22,4 +22,4 @@ Dependencies : none for the library, `re` and `str` for the tests
 - Run `dune build @install`
 - Then `dune install`
 - Compile and run the tests with `dune build unit_test.exe` then
-  dune exec ./unit_test.exe`
+  `dune exec ./unit_test.exe`
