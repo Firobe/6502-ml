@@ -1,0 +1,11 @@
+(library
+	(name cpu)
+	(public_name 6502-ml)
+	(modules cpu)
+)
+
+(executable
+	(name unit_test)
+	(libraries re str 6502-ml)
+	(modules unit_test)
+)
