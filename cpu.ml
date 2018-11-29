@@ -1,4 +1,9 @@
-(* STATE *)
+module type Mmap = sig
+    val read : int array -> int -> int
+    val write : int array -> int -> int -> unit
+end
+
+module Make (M : Mmap) = struct
 
 (* 0x000 to 0xFFFF main memory *)
 let memory = Array.make 0x10000 0x00
@@ -59,12 +64,12 @@ module Location = struct
     let get = function
         | Ref r -> !r
         | Immediate n -> n
-        | Address a -> memory.(a land 0xFFFF)
+        | Address a -> M.read memory (a land 0xFFFF)
         | None -> assert false
     let set l v = match l with
         | Ref r -> r := v
-        | Address a -> memory.(a land 0xFFFF) <- v
-        | _ -> assert false
+        | Address a -> M.write memory (a land 0xFFFF) v
+        | _ -> ()
     let ref = function
         | Address a -> a
         | _ -> assert false
@@ -120,7 +125,7 @@ module Instruction = struct
 
     (* Load/Store *)
     let gen_LD r (m : Location.t) =
-      r := !!m ; Flag.update_nz !!m
+      let v = !!m in r := v ; Flag.update_nz v
     let _LDA = gen_LD acc
     let _LDX = gen_LD irx
     let _LDY = gen_LD iry
@@ -155,10 +160,11 @@ module Instruction = struct
     let _EOR = gen_OP (lxor)
     let _ORA = gen_OP (lor)
     let _BIT m =
-        let masked = !acc land !!m in
+        let v = !!m in
+        let masked = !acc land v in
         Flag.update_zero masked;
-        Flag.set Flag.negative ((!!m lsr 7) land 0x1 = 1);
-        Flag.set Flag.overflow ((!!m lsr 6) land 0x1 = 1)
+        Flag.set Flag.negative ((v lsr 7) land 0x1 = 1);
+        Flag.set Flag.overflow ((v lsr 6) land 0x1 = 1)
 
     (* Arithmetic *)
     let bcd_to_dec b = 
@@ -220,9 +226,10 @@ module Instruction = struct
     (* Shifts *)
     let gen_SHIFT r f m =
         let oldm = !!m in
-        m <<- f oldm;
+        let nv = f oldm in
+        m <<- nv;
         Flag.set Flag.carry ((oldm lsr r) land 0x1 = 1);
-        Flag.update_nz !!m
+        Flag.update_nz nv
 
     let _ASL m = gen_SHIFT 7 (fun n -> (n lsl 1) land 0xFF) m
     let _LSR m = gen_SHIFT 0 (fun n -> n lsr 1) m
@@ -237,9 +244,10 @@ module Instruction = struct
     (* Branches *)
     let gen_BRANCH f s m =
         if Flag.get f = s then (
-            let rel = if !!m > 0x7F then
-              - (((lnot !!m) + 1) land 0xFF)
-              else !!m
+            let v = !!m in
+            let rel = if v > 0x7F then
+              - (((lnot v) + 1) land 0xFF)
+              else v
             in
             let clip = (!program_counter + rel) land 0xFFFF in
             let cp = if (clip land 0xFF00) != (!program_counter land 0xFF00)
@@ -296,88 +304,6 @@ module Instruction = struct
                 a b c ;
             assert false
 
-        let rec get_fun a b c = match (c, a) with
-            | 0, 0 -> List.nth [_BRK; _UNO; _PHP; _UNO; _BPL; _UNO; _CLC; _UNO] b
-            | 0, 1 -> List.nth [_JSR; _BIT; _PLP; _BIT; _BMI; _UNO; _SEC; _UNO] b
-            | 0, 2 -> List.nth [_RTI; _UNO; _PHA; _JMP; _BVC; _UNO; _CLI; _UNO] b
-            | 0, 3 -> List.nth [_RTS; _UNO; _PLA; _JMP; _BVS; _UNO; _SEI; _UNO] b
-            | 0, 4 -> List.nth [_UNO; _STY; _DEY; _STY; _BCC; _STY; _TYA; _UNO] b
-            | 0, 5 -> List.nth [_LDY; _LDY; _TAY; _LDY; _BCS; _LDY; _CLV; _LDY] b
-            | 0, 6 -> List.nth [_CPY; _CPY; _INY; _CPY; _BNE; _UNO; _CLD; _UNO] b
-            | 0, 7 -> List.nth [_CPX; _CPX; _INX; _CPX; _BEQ; _UNO; _SED; _UNO] b
-            | 1, 0 -> _ORA
-            | 1, 1 -> _AND
-            | 1, 2 -> _EOR
-            | 1, 3 -> _ADC
-            | 1, 4 -> if b = 2 then _NOP else _STA
-            | 1, 5 -> _LDA
-            | 1, 6 -> _CMP
-            | 1, 7 -> _SBC
-            | 2, 0 -> List.nth [_NOP; _ASL; _ASL; _ASL; _NOP; _ASL; _NOP; _ASL] b
-            | 2, 1 -> List.nth [_NOP; _ROL; _ROL; _ROL; _NOP; _ROL; _NOP; _ROL] b
-            | 2, 2 -> List.nth [_NOP; _LSR; _LSR; _LSR; _NOP; _LSR; _NOP; _LSR] b
-            | 2, 3 -> List.nth [_NOP; _ROR; _ROR; _ROR; _NOP; _ROR; _NOP; _ROR] b
-            | 2, 4 -> List.nth [_NOP; _STX; _TXA; _STX; _NOP; _STX; _TXS; _UNO] b
-            | 2, 5 -> List.nth [_LDX; _LDX; _TAX; _LDX; _LDX; _LDX; _TSX; _LDX] b
-            | 2, 6 -> List.nth [_NOP; _DEC; _DEX; _DEC; _DEC; _DEC; _NOP; _DEC] b
-            | 2, 7 -> List.nth [_NOP; _INC; _NOP; _INC; _NOP; _INC; _NOP; _INC] b
-            (* Unofficial *)
-            | 3, 4 when b = 0 || b = 1 || b = 3 || b = 5  -> _SAX
-            | 3, 0 when b != 2  && b != 1 -> get_fun a 1 c
-            | 3, 1 when b != 2  && b != 1 -> get_fun a 1 c
-            | 3, 2 when b != 2  && b != 1 -> get_fun a 1 c
-            | 3, 3 when b != 2  && b != 1 -> get_fun a 1 c
-            | 3, 6 when b != 2  && b != 1 -> get_fun a 1 c
-            | 3, 7 when b != 2 && b != 1 -> get_fun a 1 c
-            | 3, _ ->
-                let f1 = (get_fun a b (c-1)) in
-                let f2 = (get_fun a b (c-2)) in
-                fun m -> f1 m; f2 m
-            | _ -> assert false
-
-        (* Addressing and instruction dispatch *)
-        let rec get_am a b c =
-            if c = 3 then (
-                if b = 5 || b = 7 then
-                    get_am a b (c-1)
-                else
-                    get_am a b (c-2)
-            )
-            else match b with
-          | 0 -> begin match c with
-              | 0 -> begin match a with
-                  | 1 -> Absolute
-                  | a when a >= 4 -> Immediate
-                  | _ -> Implicit
-                end
-              | 1 -> Indexed_Indirect
-              | 2 -> Immediate
-              | _ -> invalid_instruction a b c
-            end
-          | 1 -> Zero_Page
-          | 2 -> begin match c with
-              | 0 -> Implicit
-              | 1 -> Immediate
-              | 2 -> if a < 4 then Accumulator else Implicit
-              | _ -> invalid_instruction a b c
-            end
-          | 3 -> if a = 3 && c = 0 then Indirect else Absolute
-          | 4 -> begin match c with
-              | 0 -> Relative
-              | 1 -> Indirect_Indexed
-              | _ -> invalid_instruction a b c
-            end
-          | 5 -> if a < 4 || a > 5 || c != 2 then Zero_Page_X else Zero_Page_Y
-          | 6 -> begin match c with
-              | 0 -> Implicit
-              | 1 -> Absolute_Y
-              | 2 -> Implicit
-              | _ -> invalid_instruction a b c
-            end
-          | 7 -> if c = 2 && a = 5 then Absolute_Y else Absolute_X
-          | _ -> invalid_instruction a b c
-
-
           (*
         let get_length ins mode page_crossed a b c = 
           let sup = ref 0 in
@@ -423,6 +349,80 @@ module Instruction = struct
           in (List.nth template v) + !sup
           *)
 
+        let t0 = [| [|_BRK; _UNO; _PHP; _UNO; _BPL; _UNO; _CLC; _UNO|];
+                    [|_JSR; _BIT; _PLP; _BIT; _BMI; _UNO; _SEC; _UNO|];
+                    [|_RTI; _UNO; _PHA; _JMP; _BVC; _UNO; _CLI; _UNO|];
+                    [|_RTS; _UNO; _PLA; _JMP; _BVS; _UNO; _SEI; _UNO|];
+                    [|_UNO; _STY; _DEY; _STY; _BCC; _STY; _TYA; _UNO|];
+                    [|_LDY; _LDY; _TAY; _LDY; _BCS; _LDY; _CLV; _LDY|];
+                    [|_CPY; _CPY; _INY; _CPY; _BNE; _UNO; _CLD; _UNO|];
+                    [|_CPX; _CPX; _INX; _CPX; _BEQ; _UNO; _SED; _UNO|] |]
+        let t1 = [|_ORA; _AND; _EOR; _ADC; _STA; _LDA; _CMP; _SBC|]
+        let t2 = [| [|_NOP; _ASL; _ASL; _ASL; _NOP; _ASL; _NOP; _ASL|];
+                    [|_NOP; _ROL; _ROL; _ROL; _NOP; _ROL; _NOP; _ROL|];
+                    [|_NOP; _LSR; _LSR; _LSR; _NOP; _LSR; _NOP; _LSR|];
+                    [|_NOP; _ROR; _ROR; _ROR; _NOP; _ROR; _NOP; _ROR|];
+                    [|_NOP; _STX; _TXA; _STX; _NOP; _STX; _TXS; _UNO|];
+                    [|_LDX; _LDX; _TAX; _LDX; _LDX; _LDX; _TSX; _LDX|];
+                    [|_NOP; _DEC; _DEX; _DEC; _DEC; _DEC; _NOP; _DEC|];
+                    [|_NOP; _INC; _NOP; _INC; _NOP; _INC; _NOP; _INC|] |]
+        let rec get_fun a b c = match c with (* 6 3 1*)
+            | 0 -> t0.(a).(b)
+            | 1 when a = 4 -> if b = 2 then _NOP else _STA
+            | 1 -> t1.(a)
+            | 2 -> t2.(a).(b)
+            (* Unofficial *)
+            | 3 when a = 4 && (b = 0 || b = 1 || b = 3 || b = 5)  -> _SAX
+            | 3 when a <> 5 && b <> 2 && b <> 1 -> get_fun a 1 c
+            | _ ->
+                let f1 = (get_fun a b (c-1)) in
+                let f2 = (get_fun a b (c-2)) in
+                fun m -> f1 m; f2 m
+
+        (* Addressing and instruction dispatch *)
+        let rec get_am a b c =
+            if c = 3 then (
+                if b = 5 || b = 7 then
+                    get_am a b (c-1)
+                else
+                    get_am a b (c-2)
+            )
+            else match b with
+          | 0 -> begin match c with
+              | 0 -> begin match a with
+                  | 1 -> Absolute
+                  | a when a >= 4 -> Immediate
+                  | _ -> Implicit
+                end
+              | 1 -> Indexed_Indirect
+              | 2 -> Immediate
+              | _ -> invalid_instruction a b c
+            end
+          | 1 -> Zero_Page
+          | 2 -> begin match c with
+              | 0 -> Implicit
+              | 1 -> Immediate
+              | 2 -> if a < 4 then Accumulator else Implicit
+              | _ -> invalid_instruction a b c
+            end
+          | 3 -> if a = 3 && c = 0 then Indirect else Absolute
+          | 4 -> begin match c with
+              | 0 -> Relative
+              | 1 -> Indirect_Indexed
+              | _ -> invalid_instruction a b c
+            end
+          | 5 -> if a < 4 || a > 5 || c != 2 then Zero_Page_X else Zero_Page_Y
+          | 6 -> begin match c with
+              | 0 -> Implicit
+              | 1 -> Absolute_Y
+              | 2 -> Implicit
+              | _ -> invalid_instruction a b c
+            end
+          | 7 -> if c = 2 && a = 5 then Absolute_Y else Absolute_X
+          | _ -> invalid_instruction a b c
+
+
+
         let decode opcode =
             let (a, b, c) = triple opcode in
             (get_fun a b c, get_am a b c)
@@ -446,39 +446,33 @@ let package_arg am =
     let v1 = memory.(b1) in
     let v2 = memory.(b2) in
     let v12 = v1 lor (v2 lsl 8) in
-    let page_crossed = ref false in
-    let arg = begin match am with
-    | Implicit -> Location.None
-    | Accumulator -> Location.Ref acc
-    | Immediate -> Location.Immediate v1
-    | Zero_Page -> Location.Address v1
-    | Zero_Page_X -> Location.Address ((v1 + !irx) land 0xFF)
-    | Zero_Page_Y -> Location.Address ((v1 + !iry) land 0xFF)
-    | Relative -> Location.Immediate v1
-    | Absolute -> Location.Address v12
+    match am with
+    | Implicit -> Location.None, false
+    | Accumulator -> Location.Ref acc, false
+    | Immediate -> Location.Immediate v1, false
+    | Zero_Page -> Location.Address v1, false
+    | Zero_Page_X -> Location.Address ((v1 + !irx) land 0xFF), false
+    | Zero_Page_Y -> Location.Address ((v1 + !iry) land 0xFF), false
+    | Relative -> Location.Immediate v1, false
+    | Absolute -> Location.Address v12, false
     | Absolute_X -> 
-        if get_page v12 != get_page (!irx + v12) then page_crossed := true ;
-        Location.Address (!irx + v12)
+        Location.Address (!irx + v12), get_page v12 != get_page (!irx + v12)
     | Absolute_Y ->
-        if get_page v12 != get_page (!iry + v12) then page_crossed := true ;
-        Location.Address (!iry + v12)
+        Location.Address (!iry + v12), get_page v12 != get_page (!iry + v12)
     | Indirect ->
           (* Second byte of target wrap around in page *)
           let sto_addr_hi = ((v12 + 1) land 0xFF) lor (v12 land 0xFF00) in
-          Location.Address (memory.(v12) lor (memory.(sto_addr_hi) lsl 8))
+          Location.Address (memory.(v12) lor (memory.(sto_addr_hi) lsl 8)), false
     | Indexed_Indirect (*X*) -> 
           let sto_addr = (v1 + !irx) land 0xFF in
           (* Second byte of target wrap around in zero page *)
           let sto_addr_hi = (sto_addr + 1) land 0xFF in
-          Location.Address (memory.(sto_addr) lor (memory.(sto_addr_hi) lsl 8))
+          Location.Address (memory.(sto_addr) lor (memory.(sto_addr_hi) lsl 8)), false
     | Indirect_Indexed (*Y*) ->
           (* Second byte of target wrap around in zero page *)
         let sto_addr_hi = (v1 + 1) land 0xFF in
         let sto = memory.(v1) lor (memory.(sto_addr_hi) lsl 8) in
-        if get_page sto != get_page (!iry + sto) then page_crossed := true ;
-        Location.Address (sto + !iry)
-    end in
-    (arg, !page_crossed)
+        Location.Address (sto + !iry), get_page sto != get_page (!iry + sto)
 
 let fetch_instr () =
     let opcode = memory.(!program_counter) in
@@ -486,9 +480,16 @@ let fetch_instr () =
     let (arg, _) = package_arg am in
     let mode_size = addressing_mode_size am in
     program_counter := !program_counter + mode_size ;
-    (*   let cycles = get_instr_length ins_fun addr_mode !page_crossed a b c in *)
-    (*   cycle_count := !cycle_count + cycles ; *)
+(*     let cycles = get_instr_length ins_fun addr_mode !page_crossed a b c in *)
+    let cycles = 3 in
+    cycle_count := !cycle_count + cycles ;
     (* Reserved bit always on *) 
     Flag.set Flag.reserved true;
     f arg
 
+let interrupt () =
+    Stack.push_addr !program_counter;
+    Stack.push !processor_status;
+    Flag.set Flag.interrupt true;
+    program_counter := mk_addr memory.(0xFFFA) memory.(0xFFFB)
+end
