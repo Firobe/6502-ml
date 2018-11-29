@@ -16,10 +16,9 @@ let acc = ref 0x00
 let irx = ref 0x00
 let iry = ref 0x00
 let processor_status = ref 0x24
+let cycle_count = ref 0
 
-let shift_and_mask v dec mask =
-    let target = v lsr dec in
-    target land mask
+
 let mk_addr lo hi = lo lor (hi lsl 8)
 module Stack = struct
     let push v =
@@ -39,8 +38,6 @@ module Stack = struct
         let hi = pull () in
         mk_addr lo hi
 end
-
-let cycle_count = ref 0
 
 let reset () =
     Array.fill memory 0 0x10000 0x0 ;
@@ -243,19 +240,16 @@ module Instruction = struct
 
     (* Branches *)
     let gen_BRANCH f s m =
-        if Flag.get f = s then (
+        if Flag.get f = s then begin
             let v = !!m in
-            let rel = if v > 0x7F then
-              - (((lnot v) + 1) land 0xFF)
-              else v
-            in
+            let rel = if v > 0x7F 
+                then - (((lnot v) + 1) land 0xFF) else v in
             let clip = (!program_counter + rel) land 0xFFFF in
             let cp = if (clip land 0xFF00) != (!program_counter land 0xFF00)
-                then 1 else 0
-            in
+                then 1 else 0 in
             cycle_count := !cycle_count + 1 + cp ;
             program_counter := clip
-        )
+        end
 
     let _BCC : t = gen_BRANCH Flag.carry false
     let _BCS = gen_BRANCH Flag.carry true
@@ -294,10 +288,9 @@ module Instruction = struct
 
     module Decoding = struct
         let triple opcode =
-            let a = shift_and_mask opcode 5 0x7 in
-            let b = shift_and_mask opcode 2 0x7 in
-            let c = shift_and_mask opcode 0 0x3 in
-            (a, b, c)
+            let ib = opcode lsr 2 in
+            let ia = ib lsr 3 in
+            (ia land 0x7, ib land 0x7, opcode land 0x3)
 
         let invalid_instruction a b c =
             Printf.printf "Invalid instruction %.2X %d %d %d\n" memory.(!program_counter)
@@ -381,47 +374,33 @@ module Instruction = struct
 
         (* Addressing and instruction dispatch *)
         let rec get_am a b c =
-            if c = 3 then (
-                if b = 5 || b = 7 then
-                    get_am a b (c-1)
-                else
-                    get_am a b (c-2)
-            )
+            if c = 3 then
+                if b = 5 || b = 7 then get_am a b (c-1)
+                else get_am a b (c-2)
             else match b with
-          | 0 -> begin match c with
-              | 0 -> begin match a with
-                  | 1 -> Absolute
-                  | a when a >= 4 -> Immediate
-                  | _ -> Implicit
+            | 0 -> begin match c with
+                | 0 -> begin match a with
+                    | 1 -> Absolute
+                    | a when a >= 4 -> Immediate
+                    | _ -> Implicit
+                    end
+                | 1 -> Indexed_Indirect | _ -> Immediate
                 end
-              | 1 -> Indexed_Indirect
-              | 2 -> Immediate
-              | _ -> invalid_instruction a b c
-            end
-          | 1 -> Zero_Page
-          | 2 -> begin match c with
-              | 0 -> Implicit
-              | 1 -> Immediate
-              | 2 -> if a < 4 then Accumulator else Implicit
-              | _ -> invalid_instruction a b c
-            end
-          | 3 -> if a = 3 && c = 0 then Indirect else Absolute
-          | 4 -> begin match c with
-              | 0 -> Relative
-              | 1 -> Indirect_Indexed
-              | _ -> invalid_instruction a b c
-            end
-          | 5 -> if a < 4 || a > 5 || c != 2 then Zero_Page_X else Zero_Page_Y
-          | 6 -> begin match c with
-              | 0 -> Implicit
-              | 1 -> Absolute_Y
-              | 2 -> Implicit
-              | _ -> invalid_instruction a b c
-            end
-          | 7 -> if c = 2 && a = 5 then Absolute_Y else Absolute_X
-          | _ -> invalid_instruction a b c
-
-
+            | 1 -> Zero_Page
+            | 2 -> begin match c with
+                | 0 -> Implicit | 1 -> Immediate
+                | _ -> if a < 4 then Accumulator else Implicit
+                end
+            | 3 -> if a = 3 && c = 0 then Indirect else Absolute
+            | 4 -> begin match c with
+                | 0 -> Relative | 1 -> Indirect_Indexed
+                | _ -> invalid_instruction a b c
+                end
+            | 5 -> if a < 4 || a > 5 || c != 2 then Zero_Page_X else Zero_Page_Y
+            | 6 -> begin match c with
+                | 0 -> Implicit | 1 -> Absolute_Y | _ -> Implicit
+                end
+            | _ -> if c = 2 && a = 5 then Absolute_Y else Absolute_X
 
         let decode opcode =
             let (a, b, c) = triple opcode in
