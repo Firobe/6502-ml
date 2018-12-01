@@ -40,7 +40,7 @@ let test2 () =
     SCpu.reset () ;
     load_rom "test_roms/nestest.nes.bin" ;
     Printf.printf "Nestest .............. " ;
-    let regexp = Str.regexp "^\\([0-9A-F]+\\).* P:\\([0-9A-F]+\\).*CYC: *\\([0-9]+\\)" in
+    let regexp = Str.regexp "^\\([0-9A-F]+\\).* A:\\([0-9A-F]+\\).* P:\\([0-9A-F]+\\).*CYC: *\\([0-9]+\\)" in
     let continue = ref true in
     let was_error = ref false in
     SCpu.stack_pointer := 0xFD ;
@@ -53,15 +53,19 @@ let test2 () =
         let toParse = input_line file in
         assert (Str.string_match regexp toParse 0) ;
         let correctPC = int_of_string @@ ("0x"^Str.matched_group 1 toParse) in
-        let correctP = int_of_string @@ ("0x"^Str.matched_group 2 toParse) in
-        let cycleNb = int_of_string @@ Str.matched_group 3 toParse in
+        let correctA = int_of_string @@ ("0x"^Str.matched_group 2 toParse) in
+        let correctP = int_of_string @@ ("0x"^Str.matched_group 3 toParse) in
+        let cycleNb = int_of_string @@ Str.matched_group 4 toParse in
         ignore cycleNb;
-        (*
         if cycleNb != (!SCpu.cycle_count * 3) mod 341 then (
-            Printf.printf "KO (cycle difference)\n%!";
+            Printf.printf "KO (cycle difference %d)\n%!"
+            ((!SCpu.cycle_count * 3) mod 341);
             was_error := true; continue := false
         ) ;
-        *)
+        if correctA != !SCpu.acc then (
+            Printf.printf "KO (ACC difference)\n%!";
+            was_error := true; continue := false
+        ) ;
         if correctPC != !SCpu.program_counter then (
             Printf.printf "KO (PC difference)\n%!";
             was_error := true; continue := false
@@ -142,8 +146,8 @@ let test5 () =
     test_rom "Timing branches ......" "test_roms/instr_timing/2-branch-timing.nes.bin"
 
 let tests =
-  test3 () ;
-  test4 () ;
   test1 () ;
-  test2 ()
+  test2 () ;
+  test3 () ;
+  test4 ()
 (*   test5 () *)

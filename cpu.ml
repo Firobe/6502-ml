@@ -297,80 +297,59 @@ module Instruction = struct
                 a b c ;
             assert false
 
-          (*
-        let get_length ins mode page_crossed a b c = 
-          let sup = ref 0 in
-          let rec get_template ins page_crossed a b c = match ins.name with
-            (* Impl, Acc, Imm, ZP, ZPX, ZPY, RLT, ABS, ABSX, ABSY, IND, INDX, INDY *)
-            | "AND" | "EOR" | "ORA" | "BIT" | "ADC" | "SBC"
-            | "CMP" | "CPX" | "CPY"
-            | "LDA" | "LDX" | "LDY" ->
-              if mode = Absolute_X || mode = Absolute_Y || mode = Indirect_Indexed then
-                sup := if page_crossed then 1 else 0 ;
-                                        [0; 0; 2; 3; 4; 4; 0; 4; 4; 4; 0; 6; 5]
-            | "STA" | "STX"
-            | "SAX" | "STY" ->          [0; 0; 0; 3; 4; 4; 0; 4; 5; 5; 0; 6; 6]
-            | "TAX" | "TAY" | "TXA"
-            | "INX" | "INY" | "DEX"
-            | "DEY" | "CLC" | "CLD"
-            | "CLI" | "CLV" | "SEC"
-            | "SED" | "SEI" | "NOP"
-            | "TYA" | "TSX" | "TXS" ->  [2; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0]
-            | "PHA" | "PHP" ->          [3; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0]
-            | "PLA" | "PLP" ->          [4; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0]
-            | "JSR" | "RTS" | "RTI" ->  [6; 0; 0; 0; 0; 0; 0; 6; 0; 0; 0; 0; 0]
-            | "BRK" ->                  [7; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0]
-            | "INC" | "DEC" | "ASL"
-            | "LSR" | "ROR" | "ROL" ->  [0; 2; 0; 5; 6; 0; 0; 6; 7; 0; 0; 0; 0]
-            | "JMP" ->                  [0; 0; 0; 0; 0; 0; 0; 3; 0; 0; 5; 0; 0]
-            | "BCC" | "BCS" | "BEQ"
-            | "BMI" | "BNE" | "BPL"
-            | "BVC" | "BVS" ->          [0; 0; 0; 0; 0; 0; 2; 0; 0; 0; 0; 0; 0]
-            | "UNF" when c = 3 &&
-                (a >= 6 || a <= 3) ->   [0; 0; 2; 5; 6; 0; 0; 6; 7; 7; 0; 8; 8]
-            | "UNF" ->
-                    let equiv = get_fun 5 b (if c >= 2 then c - 2 else 0) in
-                    get_template equiv page_crossed a b c
-            | _ -> assert false
-          in let template = get_template ins page_crossed a b c in
-          let v = match mode with
-              | Implicit -> 0 | Accumulator -> 1 | Immediate -> 2
-              | Zero_Page -> 3 | Zero_Page_X -> 4 | Zero_Page_Y -> 5
-              | Relative -> 6 | Absolute -> 7 | Absolute_X -> 8
-              | Absolute_Y -> 9 | Indirect -> 10 | Indexed_Indirect -> 11
-              | Indirect_Indexed -> 12
-          in (List.nth template v) + !sup
-          *)
-
-        let t0 = [| [|_BRK; _UNO; _PHP; _UNO; _BPL; _UNO; _CLC; _UNO|];
-                    [|_JSR; _BIT; _PLP; _BIT; _BMI; _UNO; _SEC; _UNO|];
-                    [|_RTI; _UNO; _PHA; _JMP; _BVC; _UNO; _CLI; _UNO|];
-                    [|_RTS; _UNO; _PLA; _JMP; _BVS; _UNO; _SEI; _UNO|];
-                    [|_UNO; _STY; _DEY; _STY; _BCC; _STY; _TYA; _UNO|];
-                    [|_LDY; _LDY; _TAY; _LDY; _BCS; _LDY; _CLV; _LDY|];
-                    [|_CPY; _CPY; _INY; _CPY; _BNE; _UNO; _CLD; _UNO|];
-                    [|_CPX; _CPX; _INX; _CPX; _BEQ; _UNO; _SED; _UNO|] |]
-        let t1 = [|_ORA; _AND; _EOR; _ADC; _STA; _LDA; _CMP; _SBC|]
-        let t2 = [| [|_NOP; _ASL; _ASL; _ASL; _NOP; _ASL; _NOP; _ASL|];
-                    [|_NOP; _ROL; _ROL; _ROL; _NOP; _ROL; _NOP; _ROL|];
-                    [|_NOP; _LSR; _LSR; _LSR; _NOP; _LSR; _NOP; _LSR|];
-                    [|_NOP; _ROR; _ROR; _ROR; _NOP; _ROR; _NOP; _ROR|];
-                    [|_NOP; _STX; _TXA; _STX; _NOP; _STX; _TXS; _UNO|];
-                    [|_LDX; _LDX; _TAX; _LDX; _LDX; _LDX; _TSX; _LDX|];
-                    [|_NOP; _DEC; _DEX; _DEC; _DEC; _DEC; _NOP; _DEC|];
-                    [|_NOP; _INC; _NOP; _INC; _NOP; _INC; _NOP; _INC|] |]
+        let c0 pc = function
+            | Immediate -> 2 | Zero_Page -> 3
+            | Zero_Page_X | Zero_Page_Y | Absolute -> 4
+            | Absolute_X | Absolute_Y -> if pc then 5 else 4
+            | Indirect_Indexed -> if pc then 6 else 5
+            | _ -> 6
+        let c1 _ = function
+            | Absolute_X | Absolute_Y -> 5 | Indirect_Indexed -> 6
+            | o -> c0 false o
+        let c2 _ _ = 2 let c3 _ _ = 3 let c4 _ _ = 4
+        let c5 _ _ = 6 let c6 _ _ = 7 let c9 _ _ = 2
+        let c7 _ = function
+            | Accumulator -> 2 | Zero_Page -> 5
+            | Zero_Page_X | Absolute -> 6 | _ -> 7
+        let c8 _ = function Absolute -> 3 | _ -> 5
+        let cycFuns = [|c0; c1; c2; c3; c4; c5; c6; c7; c8; c9|]
+        let t0 = [| [|_BRK,7; _UNO,0; _PHP,3; _UNO,0; _BPL,9; _UNO,0; _CLC,2; _UNO,0|];
+                    [|_JSR,5; _BIT,0; _PLP,4; _BIT,0; _BMI,9; _UNO,0; _SEC,2; _UNO,0|];
+                    [|_RTI,5; _UNO,0; _PHA,3; _JMP,8; _BVC,9; _UNO,0; _CLI,2; _UNO,0|];
+                    [|_RTS,5; _UNO,0; _PLA,4; _JMP,8; _BVS,9; _UNO,0; _SEI,2; _UNO,0|];
+                    [|_UNO,0; _STY,1; _DEY,2; _STY,1; _BCC,9; _STY,1; _TYA,2; _UNO,0|];
+                    [|_LDY,0; _LDY,0; _TAY,2; _LDY,0; _BCS,9; _LDY,0; _CLV,2; _LDY,0|];
+                    [|_CPY,0; _CPY,0; _INY,2; _CPY,0; _BNE,9; _UNO,0; _CLD,2; _UNO,0|];
+                    [|_CPX,0; _CPX,0; _INX,2; _CPX,0; _BEQ,9; _UNO,0; _SED,2; _UNO,0|] |]
+        let t1 = [|_ORA,0; _AND,0; _EOR,0; _ADC,0; _STA,1; _LDA,0; _CMP,0; _SBC,0|]
+        let t2 = [| [|_NOP,2; _ASL,7; _ASL,7; _ASL,7; _NOP,2; _ASL,7; _NOP,2; _ASL,7|];
+                    [|_NOP,2; _ROL,7; _ROL,7; _ROL,7; _NOP,2; _ROL,7; _NOP,2; _ROL,7|];
+                    [|_NOP,2; _LSR,7; _LSR,7; _LSR,7; _NOP,2; _LSR,7; _NOP,2; _LSR,7|];
+                    [|_NOP,2; _ROR,7; _ROR,7; _ROR,7; _NOP,2; _ROR,7; _NOP,2; _ROR,7|];
+                    [|_NOP,2; _STX,1; _TXA,2; _STX,1; _NOP,2; _STX,1; _TXS,2; _UNO,0|];
+                    [|_LDX,0; _LDX,0; _TAX,2; _LDX,0; _LDX,0; _LDX,0; _TSX,2; _LDX,0|];
+                    [|_NOP,2; _DEC,7; _DEX,2; _DEC,7; _DEC,7; _DEC,7; _NOP,2; _DEC,7|];
+                    [|_NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7|] |]
         let rec get_fun a b c = match c with (* 6 3 1*)
             | 0 -> t0.(a).(b)
-            | 1 when a = 4 -> if b = 2 then _NOP else _STA
+            | 1 when a = 4 -> if b = 2 then (_NOP,2) else (_STA,1)
             | 1 -> t1.(a)
             | 2 -> t2.(a).(b)
             (* Unofficial *)
-            | 3 when a = 4 && (b = 0 || b = 1 || b = 3 || b = 5)  -> _SAX
-            | 3 when a <> 5 && b <> 2 && b <> 1 -> get_fun a 1 c
+            | 3 when a = 4 && (b = 0 || b = 1 || b = 3 || b = 5)  -> (_SAX,1)
+            | 3 when a <> 5 && b <> 2 && b <> 1 -> (fst (get_fun a 1 c), -1)
             | _ ->
-                let f1 = (get_fun a b (c-1)) in
-                let f2 = (get_fun a b (c-2)) in
-                fun m -> f1 m; f2 m
+                let f1, _ = (get_fun a b (c-1)) in
+                let f2, _ = (get_fun a b (c-2)) in
+                (fun m -> f1 m; f2 m), -1
+
+        let unofCycles a b c pc am =
+            if c = 3 && a >= 6 || a <= 3 then match am with
+            | Immediate -> 2 | Zero_Page -> 5 | Zero_Page_X | Absolute -> 6
+            | Absolute_X | Absolute_Y -> 7 | _ -> 8
+            else
+                let _, cfi = get_fun 5 b (if c >= 2 then c - 2 else 0) in
+                cycFuns.(cfi) pc am
 
         (* Addressing and instruction dispatch *)
         let rec get_am a b c =
@@ -404,13 +383,16 @@ module Instruction = struct
 
         let decode opcode =
             let (a, b, c) = triple opcode in
-            (get_fun a b c, get_am a b c)
+            let f, cfi = get_fun a b c in
+            let cf = if cfi = -1 then unofCycles a b c else cycFuns.(cfi) in
+            let am = get_am a b c in
+            (f, cf, am)
     end
 end
 
 let print_state () =
     let opcode = memory.(!program_counter) in
-    let (_, am) = Instruction.Decoding.decode opcode in
+    let (_, _, am) = Instruction.Decoding.decode opcode in
     let size = addressing_mode_size am in
     Printf.printf "%.4X  " !program_counter ;
     for i = 0 to size - 1 do Printf.printf "%.2X " memory.(!program_counter + i) done ;
@@ -455,13 +437,12 @@ let package_arg am =
 
 let fetch_instr () =
     let opcode = memory.(!program_counter) in
-    let (f, am) = Instruction.Decoding.decode opcode in
-    let (arg, _) = package_arg am in
+    let (f, cf, am) = Instruction.Decoding.decode opcode in
+    let (arg, pc) = package_arg am in
     let mode_size = addressing_mode_size am in
     program_counter := !program_counter + mode_size ;
-(*     let cycles = get_instr_length ins_fun addr_mode !page_crossed a b c in *)
-    let cycles = 3 in
-    cycle_count := !cycle_count + cycles ;
+    let cycles_elapsed = cf pc am in
+    cycle_count := !cycle_count + cycles_elapsed ;
     (* Reserved bit always on *) 
     Flag.set Flag.reserved true;
     f arg
