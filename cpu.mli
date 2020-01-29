@@ -1,10 +1,10 @@
 module type Mmap = sig
-    val read : int array -> int -> int
-    val write : int array -> int -> int -> unit
+    val read : int -> int
+    val write : int -> int -> unit
 end
 
 module Make : functor (M : Mmap) -> sig
-    val memory : int array
+    module M : Mmap
     val program_counter : int ref
     val stack_pointer : int ref
     val processor_status : int ref

@@ -1,13 +1,15 @@
 module SCpu = Cpu.Make (struct
-    let read mem a = mem.(a)
-    let write mem a v = mem.(a) <- v
+    (* 0x000 to 0xFFFF main memory *)
+    let mem = Array.make 0x10000 0x00
+    let read a = mem.(a)
+    let write a v = mem.(a) <- v
 end)
 
 let dump_memory ?path:(path="memdump") () =
     let file = open_out_bin (path ^ ".bin") in
     let store = Bytes.create 0x10000 in
-    for i = 0 to (Array.length SCpu.memory) - 1 do
-        Bytes.set store i @@ char_of_int SCpu.memory.(i)
+    for i = 0 to 0xFFFF do
+        Bytes.set store i @@ char_of_int (SCpu.M.read i)
     done ;
     output file store 0 (Bytes.length store) ;
     close_out file
@@ -17,7 +19,7 @@ let load_rom path =
     let store = Bytes.create 0x10000 in
     let read = input file store 0 0x10000 in
     let store = Bytes.sub store 0 read in
-    Bytes.iteri (fun i el -> Array.set SCpu.memory (i) (int_of_char el)) store
+    Bytes.iteri (fun i el -> SCpu.M.write i (int_of_char el)) store
 
 let test1 () =
     SCpu.reset () ;
@@ -76,10 +78,10 @@ let test2 () =
         ) ;
         SCpu.fetch_instr ()
     done ;
-    if not !was_error && SCpu.memory.(2) = 0 && SCpu.memory.(3) = 0 then
+    if not !was_error && SCpu.M.read 2 = 0 && SCpu.M.read 3 = 0 then
         Printf.printf "OK\n%!"
     else if not !was_error then
-        Printf.printf "KO (errors %.2X %.2X)\n%!" SCpu.memory.(2) SCpu.memory.(3)
+        Printf.printf "KO (errors %.2X %.2X)\n%!" (SCpu.M.read 2) (SCpu.M.read 3)
 
 let test_rom name path =
     SCpu.reset ();
@@ -97,21 +99,21 @@ let test_rom name path =
             continue := false
     done ;
     let cur_pos = ref 0x6004 in
-    while SCpu.memory.(!cur_pos) != 0 do
+    while SCpu.M.read !cur_pos != 0 do
         incr cur_pos
     done ;
     let end_pos = !cur_pos - 2 in
     cur_pos := end_pos ;
-    while SCpu.memory.(!cur_pos) != 0x0A do
+    while SCpu.M.read !cur_pos != 0x0A do
         decr cur_pos
     done ;
     let begin_pos = !cur_pos + 1 in
     let outStr = String.init (end_pos - begin_pos + 1)
-        (fun i -> char_of_int @@ SCpu.memory.(begin_pos + i)) in
+        (fun i -> char_of_int @@ SCpu.M.read (begin_pos + i)) in
     if outStr = "Failed" then
         let errStr = String.init (end_pos - 0x6004 + 1)
             (fun i -> 
-                let m = SCpu.memory.(0x6004 + i) in
+                let m = SCpu.M.read (0x6004 + i) in
                 char_of_int @@ (if m = 0x0A then 0x3B else m)
             ) in
         Printf.printf "KO (%s)\n%!" errStr

@@ -1,12 +1,10 @@
 module type Mmap = sig
-    val read : int array -> int -> int
-    val write : int array -> int -> int -> unit
+    val read : int -> int
+    val write : int -> int -> unit
 end
 
 module Make (M : Mmap) = struct
 
-(* 0x000 to 0xFFFF main memory *)
-let memory = Array.make 0x10000 0x00
 let enable_decimal = ref true
 
 (* Registers *)
@@ -22,7 +20,7 @@ let cycle_count = ref 0
 let mk_addr lo hi = lo lor (hi lsl 8)
 module Stack = struct
     let push v =
-      memory.(0x0100 + !stack_pointer) <- v ;
+      M.write (0x0100 + !stack_pointer) v ;
       stack_pointer := (!stack_pointer - 1) land 0xFF
 
     let push_addr v =
@@ -31,7 +29,7 @@ module Stack = struct
 
     let pull () =
       stack_pointer := (!stack_pointer + 1) land 0xFF ;
-      memory.(0x0100 + !stack_pointer)
+      M.read (0x0100 + !stack_pointer)
 
     let pull_addr () =
         let lo = pull () in
@@ -40,7 +38,7 @@ module Stack = struct
 end
 
 let reset () =
-    Array.fill memory 0 0x10000 0x0 ;
+    for i = 0 to 0xFFFF do M.write i 0x0 done ;
     enable_decimal := true ;
     program_counter := 0x0400 ;
     acc := 0x0 ;
@@ -50,7 +48,7 @@ let reset () =
     cycle_count := 0
 
 let init_pc () =
-    program_counter := (memory.(0xFFFD) lsl 8) lor memory.(0xFFFC)
+  program_counter := (M.read 0xFFFD lsl 8) lor (M.read 0xFFFC)
 
 module Location = struct
     type t =
@@ -61,11 +59,11 @@ module Location = struct
     let get = function
         | Ref r -> !r
         | Immediate n -> n
-        | Address a -> M.read memory (a land 0xFFFF)
+        | Address a -> M.read (a land 0xFFFF)
         | None -> assert false
     let set l v = match l with
         | Ref r -> r := v
-        | Address a -> M.write memory (a land 0xFFFF) v
+        | Address a -> M.write (a land 0xFFFF) v
         | _ -> ()
     let ref = function
         | Address a -> a
@@ -275,7 +273,7 @@ module Instruction = struct
         Flag.set Flag.break true;
         Stack.push !processor_status;
         Flag.set Flag.interrupt true;
-        program_counter := mk_addr memory.(0xFFFE) memory.(0xFFFF)
+        program_counter := mk_addr (M.read 0xFFFE) (M.read 0xFFFF)
 
     let _RTI _ =
         processor_status := Stack.pull ();
@@ -293,7 +291,7 @@ module Instruction = struct
             (ia land 0x7, ib land 0x7, opcode land 0x3)
 
         let invalid_instruction a b c =
-            Printf.printf "Invalid instruction %.2X %d %d %d\n" memory.(!program_counter)
+            Printf.printf "Invalid instruction %.2X %d %d %d\n" (M.read !program_counter)
                 a b c ;
             assert false
 
@@ -391,11 +389,11 @@ module Instruction = struct
 end
 
 let print_state () =
-    let opcode = memory.(!program_counter) in
+    let opcode = M.read !program_counter in
     let (_, _, am) = Instruction.Decoding.decode opcode in
     let size = addressing_mode_size am in
     Printf.printf "%.4X  " !program_counter ;
-    for i = 0 to size - 1 do Printf.printf "%.2X " memory.(!program_counter + i) done ;
+    for i = 0 to size - 1 do Printf.printf "%.2X " (M.read (!program_counter + i)) done ;
     Printf.printf "\t\t A:%.2X X:%.2X Y:%.2X P:%.2X SP:%.2X CYC:%3d\n%!"
         !acc !irx !iry !processor_status
         !stack_pointer (!cycle_count*3 mod 341)
@@ -404,8 +402,8 @@ let get_page v = v lsr 8
 let package_arg am =
     let b1 = !program_counter + 1 in
     let b2 = !program_counter + 2 in
-    let v1 = memory.(b1) in
-    let v2 = memory.(b2) in
+    let v1 = M.read b1 in
+    let v2 = M.read b2 in
     let v12 = v1 lor (v2 lsl 8) in
     match am with
     | Implicit -> Location.None, false
@@ -423,20 +421,20 @@ let package_arg am =
     | Indirect ->
           (* Second byte of target wrap around in page *)
           let sto_addr_hi = ((v12 + 1) land 0xFF) lor (v12 land 0xFF00) in
-          Location.Address (memory.(v12) lor (memory.(sto_addr_hi) lsl 8)), false
+          Location.Address (M.read v12 lor (M.read sto_addr_hi lsl 8)), false
     | Indexed_Indirect (*X*) -> 
           let sto_addr = (v1 + !irx) land 0xFF in
           (* Second byte of target wrap around in zero page *)
           let sto_addr_hi = (sto_addr + 1) land 0xFF in
-          Location.Address (memory.(sto_addr) lor (memory.(sto_addr_hi) lsl 8)), false
+          Location.Address (M.read sto_addr lor (M.read sto_addr_hi lsl 8)), false
     | Indirect_Indexed (*Y*) ->
           (* Second byte of target wrap around in zero page *)
         let sto_addr_hi = (v1 + 1) land 0xFF in
-        let sto = memory.(v1) lor (memory.(sto_addr_hi) lsl 8) in
+        let sto = M.read v1 lor (M.read sto_addr_hi lsl 8) in
         Location.Address (sto + !iry), get_page sto != get_page (!iry + sto)
 
 let fetch_instr () =
-    let opcode = memory.(!program_counter) in
+    let opcode = M.read !program_counter in
     let (f, cf, am) = Instruction.Decoding.decode opcode in
     let (arg, pc) = package_arg am in
     let mode_size = addressing_mode_size am in
@@ -451,5 +449,7 @@ let interrupt () =
     Stack.push_addr !program_counter;
     Stack.push !processor_status;
     Flag.set Flag.interrupt true;
-    program_counter := mk_addr memory.(0xFFFA) memory.(0xFFFB)
+    program_counter := mk_addr (M.read 0xFFFA) (M.read 0xFFFB)
+
+module M = M
 end
