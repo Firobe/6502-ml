@@ -3,6 +3,24 @@ module type Mmap = sig
     val write : int -> int -> unit
 end
 
+module type Full = sig
+  module M : Mmap
+  val program_counter : int ref
+  val stack_pointer : int ref
+  val processor_status : int ref
+  val acc : int ref
+  val irx : int ref
+  val iry : int ref
+  val enable_decimal : bool ref
+  val cycle_count : int ref
+
+  val fetch_instr : unit -> unit
+  val print_state : unit -> unit
+  val reset : unit -> unit
+  val init_pc : unit -> unit
+  val interrupt : unit -> unit
+end
+
 module Make (M : Mmap) = struct
 
 let enable_decimal = ref true
