@@ -1,19 +1,20 @@
 module type Mmap = sig
-    val read : int -> int
-    val write : int -> int -> unit
+  val read : int -> int
+  val write : int -> int -> unit
 end
 
 module type Full = sig
   module M : Mmap
-  val program_counter : int ref
-  val stack_pointer : int ref
-  val processor_status : int ref
-  val acc : int ref
-  val irx : int ref
-  val iry : int ref
+
+  module Register : sig
+    type t = [`PC | `S | `A | `X | `Y | `P]
+
+    val get : t -> int
+    val set : t -> int -> unit
+  end
+
   val enable_decimal : bool ref
   val cycle_count : int ref
-
   val fetch_instr : unit -> unit
   val print_state : unit -> unit
   val reset : unit -> unit
