@@ -150,9 +150,27 @@ let test5 () =
   test_rom "Timing instr ........." "test_roms/instr_timing/1-instr_timing.nes.bin" ;
   test_rom "Timing branches ......" "test_roms/instr_timing/2-branch-timing.nes.bin"
 
+let test6 () =
+  SCpu.reset () ;
+  load_rom "test_roms/65C02_extended_opcodes_test.bin" ;
+  let continue = ref true in
+  SCpu.Register.set `PC 0x400 ;
+  SCpu.Register.set `P 0x00 ;
+  while !continue do
+    let back = get_pc () in
+    SCpu.fetch_instr () ;
+    if back = get_pc () then
+      continue := false
+  done ;
+  if get_pc () = 0x3469 then
+    Printf.printf "Extended ops .......... OK\n%!"
+  else Printf.printf "Extended ops ......... KO (trap at %.4X)%!\n"
+      (get_pc ())
+
 let tests =
   test1 () ;
   test2 () ;
   test3 () ;
-  test4 ()
+  test4 () ;
+  test6 () 
 (*   test5 () *)
