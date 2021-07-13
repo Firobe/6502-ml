@@ -400,34 +400,30 @@ module Make (M : Mmap) = struct
           cycFuns.(cfi) pc am
 
       (* Addressing and instruction dispatch *)
-      let rec get_am a b c =
-        if c = 3 then
-          if b = 5 || b = 7 then get_am a b (c-1)
-          else get_am a b (c-2)
-        else match b with
-          | 0 -> begin match c with
-              | 0 -> begin match a with
-                  | 1 -> Absolute
-                  | a when a >= 4 -> Immediate
-                  | _ -> Implicit
-                end
-              | 1 -> Indexed_Indirect | _ -> Immediate
-            end
-          | 1 -> Zero_Page
-          | 2 -> begin match c with
-              | 0 -> Implicit | 1 -> Immediate
-              | _ -> if a < 4 then Accumulator else Implicit
-            end
-          | 3 -> if a = 3 && c = 0 then Indirect else Absolute
-          | 4 -> begin match c with
-              | 0 -> Relative | 1 -> Indirect_Indexed
-              | _ -> invalid_instruction a b c
-            end
-          | 5 -> if a < 4 || a > 5 || c <> 2 then Zero_Page_X else Zero_Page_Y
-          | 6 -> begin match c with
-              | 0 -> Implicit | 1 -> Absolute_Y | _ -> Implicit
-            end
-          | _ -> if c = 2 && a = 5 then Absolute_Y else Absolute_X
+      let rec get_am a b c = match b, c, a with
+        | (5|7), 3, _ -> get_am a b (c - 1)
+        | _, 3, _ -> get_am a b (c - 2)
+        | 0, 0, 1 -> Absolute
+        | 0, 0, a when a >= 4 -> Immediate
+        | 0, 0, _ -> Implicit
+        | 0, 1, _ -> Indexed_Indirect
+        | 0, _, _ -> Immediate
+        | 1, _, _ -> Zero_Page
+        | 2, 0, _ -> Implicit
+        | 2, 1, _ -> Immediate
+        | 2, _, a when a < 4 -> Accumulator
+        | 2, _, _ -> Implicit
+        | 3, 0, 3 -> Indirect
+        | 3, _, _ -> Absolute
+        | 4, 0, _ -> Relative
+        | 4, 1, _ -> Indirect_Indexed
+        | 4, _, _ -> invalid_instruction a b c
+        | 5, c, a when a < 4 || a > 5 || c <> 2 -> Zero_Page_X
+        | 5, _, _ -> Zero_Page_Y
+        | 6, 1, _ -> Absolute_Y
+        | 6, _, _ -> Implicit
+        | _, 2, 5 -> Absolute_Y
+        | _, _, _ -> Absolute_X
 
       let decode opcode =
         let (a, b, c) = triple opcode in
