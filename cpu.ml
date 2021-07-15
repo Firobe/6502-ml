@@ -566,7 +566,7 @@ module Make (M : Mmap) = struct
     Stack.push_addr (PC.get ()) ;
     Stack.push (R.get `P) ;
     Flag.set Flag.interrupt true;
-    PC.set @@ mk_addr ~hi:(M.read (u16 0xFFFA)) ~lo:(M.read (u16 0xFFFB))
+    PC.set @@ mk_addr ~lo:(M.read (u16 0xFFFA)) ~hi:(M.read (u16 0xFFFB))
 
   module M = M
 end
