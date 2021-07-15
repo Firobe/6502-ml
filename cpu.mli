@@ -1,6 +1,13 @@
 open Stdint
 exception Invalid_instruction of uint16 * uint8
 
+module Int_utils : sig
+  val u8 : int -> uint8
+  val u16 : int -> uint16
+  val pp_u8 : Format.formatter -> uint8 -> unit
+  val pp_u16 : Format.formatter -> uint16 -> unit
+end
+
 module type Mmap = sig
   val read : uint16 -> uint8
   val write : uint16 -> uint8 -> unit

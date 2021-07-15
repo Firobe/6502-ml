@@ -1,12 +1,18 @@
 open Stdint
 exception Invalid_instruction of uint16 * uint8
 
-let u8 = Uint8.of_int
-let u16 = Uint16.of_int
-let pp_u8 fmt u =
-  Format.fprintf fmt "%.2X" (Uint8.to_int u)
-let pp_u16 fmt u =
-  Format.fprintf fmt "%.4X" (Uint16.to_int u)
+module Int_utils = struct
+  let u8 = Uint8.of_int
+  let u16 = Uint16.of_int
+  let u8of16 = Uint8.of_uint16
+  let u16of8 = Uint16.of_uint8
+  let pp_u8 fmt u =
+    Format.fprintf fmt "%.2X" (Uint8.to_int u)
+  let pp_u16 fmt u =
+    Format.fprintf fmt "%.4X" (Uint16.to_int u)
+end
+
+open Int_utils
 
 module type Mmap = sig
   val read : uint16 -> uint8
@@ -38,13 +44,11 @@ module type Full = sig
 end
 
 let mk_addr ~hi ~lo =
-  let lo = Uint16.of_uint8 lo in
-  let hi = Uint16.of_uint8 hi in
+  let lo = u16of8 lo in
+  let hi = u16of8 hi in
   Uint16.(logor (shift_left hi 8) lo)
-let get_hi (addr : uint16) =
-  Uint16.(to_uint8 @@ shift_right_logical addr 8)
-let get_lo (addr : uint16) =
-  Uint16.(to_uint8 addr)
+let get_hi (addr : uint16) = u8of16 Uint16.(shift_right_logical addr 8)
+let get_lo (addr : uint16) = u8of16 addr
 let get_bit (x : uint8) n =
     Uint8.(one = (logand (shift_right_logical x n) one))
 
@@ -269,12 +273,12 @@ module Make (M : Mmap) = struct
       let post = if decimal then dec_to_bcd else fun x -> x in
       let max = if decimal then (u16 99) else (u16 0xFF) in
       (* Convert ops to u16 to detect overflow *)
-      let op1 = Uint16.of_uint8 @@ pre @@ R.get `A in
-      let op2 = Uint16.of_uint8 @@ pre v in
-      let c = Uint16.of_uint8 @@ Flag.geti Flag.carry in
+      let op1 = u16of8 @@ pre @@ R.get `A in
+      let op2 = u16of8 @@ pre v in
+      let c = u16of8 @@ Flag.geti Flag.carry in
       let sum = Uint16.(op1 + op2 + c) in
       Flag.set Flag.carry (sum > max);
-      let rsum = Uint8.of_uint16 @@ Uint16.(rem sum (succ max)) in
+      let rsum = u8of16 @@ Uint16.(rem sum (succ max)) in
       let overflow = zero <>
                      (logand (logand (u8 0x80) (logxor v rsum))
                         (logxor (R.get `A) rsum)) in
@@ -520,11 +524,11 @@ module Make (M : Mmap) = struct
     | Implicit -> Location.None, false
     | Accumulator -> Location.Register `A, false
     | Immediate -> Location.Immediate v1, false
-    | Zero_Page -> Location.Address (Uint16.of_uint8 v1), false
+    | Zero_Page -> Location.Address (u16of8 v1), false
     | Zero_Page_X ->
-      Location.Address (Uint16.of_uint8 (Uint8.(v1 + R.get `X))), false
+      Location.Address (u16of8 (Uint8.(v1 + R.get `X))), false
     | Zero_Page_Y ->
-      Location.Address (Uint16.of_uint8 (Uint8.(v1 + R.get `Y))), false
+      Location.Address (u16of8 (Uint8.(v1 + R.get `Y))), false
     | Relative -> Location.Immediate v1, false
     | Absolute -> Location.Address v12, false
     | Absolute_X -> absolute `X
@@ -536,13 +540,13 @@ module Make (M : Mmap) = struct
     | Indexed_Indirect (*X*) -> 
       let sto_addr = Uint8.(v1 + R.get `X) in
       (* Second byte of target wrap around in zero page *)
-      let sto_addr_hi = Uint16.of_uint8 @@ Uint8.(succ sto_addr) in
+      let sto_addr_hi = u16of8 @@ Uint8.(succ sto_addr) in
       Location.Address (mk_addr ~hi:(M.read sto_addr_hi) 
-                          ~lo:(M.read @@ Uint16.of_uint8 sto_addr)), false
+                          ~lo:(M.read @@ u16of8 sto_addr)), false
     | Indirect_Indexed (*Y*) ->
       (* Second byte of target wrap around in zero page *)
-      let sto_addr_hi = Uint16.of_uint8 @@ Uint8.(succ v1) in
-      let sto = mk_addr ~hi:(M.read sto_addr_hi) ~lo:(M.read @@ Uint16.of_uint8 v1) in
+      let sto_addr_hi = u16of8 @@ Uint8.(succ v1) in
+      let sto = mk_addr ~hi:(M.read sto_addr_hi) ~lo:(M.read @@ u16of8 v1) in
       let addr = Uint16.(sto + of_uint8 (R.get `Y)) in
       Location.Address addr, get_page sto <> get_page addr
 

@@ -1,11 +1,5 @@
 open Stdint
-
-let u8 = Uint8.of_int
-let u16 = Uint16.of_int
-let pp_u8 fmt u =
-  Format.fprintf fmt "%.2X" (Uint8.to_int u)
-let pp_u16 fmt u =
-  Format.fprintf fmt "%.4X" (Uint16.to_int u)
+open Cpu.Int_utils
 
 module SCpu = Cpu.Make (struct
     (* 0x000 to 0xFFFF main memory *)
@@ -105,8 +99,8 @@ let test2 () =
      && SCpu.M.read (u16 3) = (u8 0) then
     Format.printf "OK\n%!"
   else if not !was_error then
-    Format.printf "KO (errors %a %a)\n%!" Uint8.printer (SCpu.M.read (u16 2))
-      Uint8.printer (SCpu.M.read (u16 3))
+    Format.printf "KO (errors %a %a)\n%!" pp_u8 (SCpu.M.read (u16 2))
+      pp_u8 (SCpu.M.read (u16 3))
 
 let test_rom name path =
   SCpu.reset ();
@@ -188,7 +182,7 @@ let test6 () =
   if get_pc () = (u16 0x3469) then
     Printf.printf "Extended ops .......... OK\n%!"
   else Format.printf "Extended ops ......... KO (trap at %a)%!\n"
-      Uint16.printer (get_pc ())
+      pp_u16 (get_pc ())
 
 let tests =
   test1 () ;
