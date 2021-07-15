@@ -6,6 +6,10 @@ module Int_utils : sig
   val u16 : int -> uint16
   val pp_u8 : Format.formatter -> uint8 -> unit
   val pp_u16 : Format.formatter -> uint16 -> unit
+  val mk_addr : hi:uint8 -> lo:uint8 -> uint16
+  val get_hi : uint16 -> uint8
+  val get_lo : uint16 -> uint8
+  val get_bit : uint8 -> int -> bool
 end
 
 module type Mmap = sig
