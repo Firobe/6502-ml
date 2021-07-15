@@ -1,15 +1,25 @@
+open Stdint
+
+let u8 = Uint8.of_int
+let u16 = Uint16.of_int
+let pp_u8 fmt u =
+  Format.fprintf fmt "%.2X" (Uint8.to_int u)
+let pp_u16 fmt u =
+  Format.fprintf fmt "%.4X" (Uint16.to_int u)
+
 module SCpu = Cpu.Make (struct
     (* 0x000 to 0xFFFF main memory *)
-    let mem = Array.make 0x10000 0x00
-    let read a = mem.(a)
-    let write a v = mem.(a) <- v
+    let mem = Array.make 0x10000 Uint8.zero
+    let read a = mem.(Uint16.to_int a)
+    let write a v = mem.(Uint16.to_int a) <- v
   end)
 
 let dump_memory ?path:(path="memdump") () =
   let file = open_out_bin (path ^ ".bin") in
   let store = Bytes.create 0x10000 in
   for i = 0 to 0xFFFF do
-    Bytes.set store i @@ char_of_int (SCpu.M.read i)
+    let i16 = u16 i in
+    Bytes.set store i @@ char_of_int @@ Uint8.to_int (SCpu.M.read i16)
   done ;
   output file store 0 (Bytes.length store) ;
   close_out file
@@ -19,41 +29,43 @@ let load_rom path =
   let store = Bytes.create 0x10000 in
   let read = input file store 0 0x10000 in
   let store = Bytes.sub store 0 read in
-  Bytes.iteri (fun i el -> SCpu.M.write i (int_of_char el)) store
+  Bytes.iteri (fun i el ->
+      SCpu.M.write (u16 i) (u8 (int_of_char el))) store
 
-let get_pc () = SCpu.Register.get `PC
+let get_pc () = SCpu.PC.get ()
 
 let test1 () =
   SCpu.reset () ;
   load_rom "test_roms/klaus.bin" ;
   let continue = ref true in
-  SCpu.Register.set `PC 0x400 ;
-  SCpu.Register.set `P 0x00 ;
+  SCpu.PC.set (u16 0x400) ;
+  SCpu.Register.set `P (u8 0) ;
   while !continue do
     let back = get_pc () in
     SCpu.fetch_instr () ;
     if back = get_pc () then
       continue := false
   done ;
-  if get_pc () = 0x3469 then
-    Printf.printf "Functional tests ..... OK\n%!"
-  else Printf.printf "Functional tests ..... KO (trap at %.4X)%!\n"
-      (get_pc ())
+  if get_pc () = (u16 0x3469) then
+    Format.printf "Functional tests ..... OK\n%!"
+  else Format.printf "Functional tests ..... KO (trap at %a)%!\n"
+      Uint16.printer (get_pc ())
 
 let test2 () =
   let file = open_in_bin "test_roms/nestest.log" in
   SCpu.reset () ;
   load_rom "test_roms/nestest.nes.bin" ;
-  Printf.printf "Nestest .............. " ;
+  Printf.printf "Nestest .............. %!" ;
   let regexp = Str.regexp "^\\([0-9A-F]+\\).* A:\\([0-9A-F]+\\).* P:\\([0-9A-F]+\\).*CYC: *\\([0-9]+\\)" in
   let continue = ref true in
   let was_error = ref false in
-  SCpu.Register.set `S 0xFD ;
+  SCpu.Register.set `S (u8 0xFD) ;
   SCpu.enable_decimal := false ;
-  SCpu.Register.set `P 0x24 ;
-  SCpu.Register.set `PC 0xC000 ;
+  SCpu.Register.set `P (u8 0x24) ;
+  SCpu.PC.set (u16 0xC000) ;
+  let last_line = ref "" in
   while !continue do
-    if get_pc () = 0xC66E then
+    if get_pc () = (u16 0xC66E) then
       continue := false ;
     let toParse = input_line file in
     assert (Str.string_match regexp toParse 0) ;
@@ -61,40 +73,46 @@ let test2 () =
     let correctA = int_of_string @@ ("0x"^Str.matched_group 2 toParse) in
     let correctP = int_of_string @@ ("0x"^Str.matched_group 3 toParse) in
     let cycleNb = int_of_string @@ Str.matched_group 4 toParse in
-    ignore cycleNb;
     if cycleNb <> (!SCpu.cycle_count * 3) mod 341 then (
       Printf.printf "KO (cycle difference %d)\n%!"
         ((!SCpu.cycle_count * 3) mod 341);
       was_error := true; continue := false
     ) ;
-    if correctA <> SCpu.Register.get `A then (
+    if (u8 correctA) <> SCpu.Register.get `A then (
       Printf.printf "KO (ACC difference)\n%!";
       was_error := true; continue := false
     ) ;
-    if correctPC <> get_pc () then (
+    if (u16 correctPC) <> get_pc () then (
       Printf.printf "KO (PC difference)\n%!";
       was_error := true; continue := false
     ) ;
-    if correctP <> SCpu.Register.get `P then (
+    if (u8 correctP) <> SCpu.Register.get `P then (
       Printf.printf "KO (P status difference)\n%!";
       was_error := true; continue := false
     ) ;
+    if not !continue && !was_error then begin
+      Printf.printf "Last state:\n%s\nExpected:\n%s\nGot:\n" !last_line toParse;
+      SCpu.print_state ()
+    end ;
+    last_line := toParse ;
     SCpu.fetch_instr ()
   done ;
-  if not !was_error && SCpu.M.read 2 = 0 && SCpu.M.read 3 = 0 then
-    Printf.printf "OK\n%!"
+  if not !was_error && SCpu.M.read (u16 2) = (u8 0)
+     && SCpu.M.read (u16 3) = (u8 0) then
+    Format.printf "OK\n%!"
   else if not !was_error then
-    Printf.printf "KO (errors %.2X %.2X)\n%!" (SCpu.M.read 2) (SCpu.M.read 3)
+    Format.printf "KO (errors %a %a)\n%!" Uint8.printer (SCpu.M.read (u16 2))
+      Uint8.printer (SCpu.M.read (u16 3))
 
 let test_rom name path =
   SCpu.reset ();
   Printf.printf "%s " name ;
   load_rom path ;
   let continue = ref true in
-  SCpu.Register.set `S 0xFD ;
+  SCpu.Register.set `S (u8 0xFD) ;
   SCpu.enable_decimal := false ;
-  SCpu.Register.set `P 0x24 ;
-  SCpu.init_pc () ;
+  SCpu.Register.set `P (u8 0x24) ;
+  SCpu.PC.init () ;
   while !continue do
     let back = get_pc () in
     SCpu.fetch_instr () ;
@@ -102,22 +120,23 @@ let test_rom name path =
       continue := false
   done ;
   let cur_pos = ref 0x6004 in
-  while SCpu.M.read !cur_pos <> 0 do
+  while SCpu.M.read (u16 !cur_pos) <> (u8 0) do
     incr cur_pos
   done ;
   let end_pos = !cur_pos - 2 in
   cur_pos := end_pos ;
-  while SCpu.M.read !cur_pos <> 0x0A do
+  while SCpu.M.read (u16 !cur_pos) <> (u8 0x0A) do
     decr cur_pos
   done ;
   let begin_pos = !cur_pos + 1 in
   let outStr = String.init (end_pos - begin_pos + 1)
-      (fun i -> char_of_int @@ SCpu.M.read (begin_pos + i)) in
+      (fun i -> char_of_int @@ Uint8.to_int
+        @@ SCpu.M.read (u16 (begin_pos + i))) in
   if outStr = "Failed" then
     let errStr = String.init (end_pos - 0x6004 + 1)
         (fun i -> 
-           let m = SCpu.M.read (0x6004 + i) in
-           char_of_int @@ (if m = 0x0A then 0x3B else m)
+           let m = SCpu.M.read (u16 (0x6004 + i)) in
+           char_of_int @@ Uint8.to_int @@ (if m = (u8 0x0A) then (u8 0x3B) else m)
         ) in
     Printf.printf "KO (%s)\n%!" errStr
   else Printf.printf "OK\n%!"
@@ -154,18 +173,18 @@ let test6 () =
   SCpu.reset () ;
   load_rom "test_roms/65C02_extended_opcodes_test.bin" ;
   let continue = ref true in
-  SCpu.Register.set `PC 0x400 ;
-  SCpu.Register.set `P 0x00 ;
+  SCpu.PC.set (u16 0x400) ;
+  SCpu.Register.set `P (u8 0x00) ;
   while !continue do
     let back = get_pc () in
     SCpu.fetch_instr () ;
     if back = get_pc () then
       continue := false
   done ;
-  if get_pc () = 0x3469 then
+  if get_pc () = (u16 0x3469) then
     Printf.printf "Extended ops .......... OK\n%!"
-  else Printf.printf "Extended ops ......... KO (trap at %.4X)%!\n"
-      (get_pc ())
+  else Format.printf "Extended ops ......... KO (trap at %a)%!\n"
+      Uint16.printer (get_pc ())
 
 let tests =
   test1 () ;

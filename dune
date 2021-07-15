@@ -1,6 +1,7 @@
 (library
 	(name cpu)
 	(public_name 6502-ml)
+    (libraries stdint)
 	(modules cpu)
 )
 

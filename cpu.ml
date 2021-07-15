@@ -1,26 +1,51 @@
+open Stdint
+
+let u8 = Uint8.of_int
+let u16 = Uint16.of_int
+let pp_u8 fmt u =
+  Format.fprintf fmt "%.2X" (Uint8.to_int u)
+let pp_u16 fmt u =
+  Format.fprintf fmt "%.4X" (Uint16.to_int u)
+
 module type Mmap = sig
-  val read : int -> int
-  val write : int -> int -> unit
+  val read : uint16 -> uint8
+  val write : uint16 -> uint8 -> unit
 end
 
 module type Full = sig
   module M : Mmap
 
   module Register : sig
-    type t = [`PC | `S | `A | `X | `Y | `P]
+    type t = [`S | `A | `X | `Y | `P]
 
-    val get : t -> int
-    val set : t -> int -> unit
+    val get : t -> uint8
+    val set : t -> uint8 -> unit
   end
+  module PC : sig
+    val get : unit -> uint16
+    val set : uint16 -> unit
+    val init : unit -> unit
+  end
+
 
   val enable_decimal : bool ref
   val cycle_count : int ref
   val fetch_instr : unit -> unit
   val print_state : unit -> unit
   val reset : unit -> unit
-  val init_pc : unit -> unit
   val interrupt : unit -> unit
 end
+
+let mk_addr ~hi ~lo =
+  let lo = Uint16.of_uint8 lo in
+  let hi = Uint16.of_uint8 hi in
+  Uint16.(logor (shift_left hi 8) lo)
+let get_hi (addr : uint16) =
+  Uint16.(to_uint8 @@ shift_right_logical addr 8)
+let get_lo (addr : uint16) =
+  Uint16.(to_uint8 addr)
+let get_bit (x : uint8) n =
+    Uint8.(one = (logand (shift_right_logical x n) one))
 
 module Make (M : Mmap) = struct
 
@@ -28,18 +53,17 @@ module Make (M : Mmap) = struct
   let enable_decimal = ref true
 
   module Register = struct
-    type t = [`PC | `S | `A | `X | `Y | `P]
+    type t = [`S | `A | `X | `Y | `P]
 
     (* Registers *)
-    let program_counter = ref 0x0400
-    let stack_pointer = ref 0x00FF
-    let acc = ref 0x00
-    let irx = ref 0x00
-    let iry = ref 0x00
-    let processor_status = ref 0x24
+    open Uint8
+    let stack_pointer = ref (u8 0xFF)
+    let acc = ref zero
+    let irx = ref zero
+    let iry = ref zero
+    let processor_status = ref (u8 0x24)
 
     let map = function
-      | `PC -> program_counter
       | `S -> stack_pointer
       | `A -> acc
       | `X -> irx
@@ -48,57 +72,72 @@ module Make (M : Mmap) = struct
 
     let get r = !(map r)
     let set r v = (map r) := v
+    let incr r = (map r) := (succ !(map r))
+    let decr r = (map r) := (pred !(map r))
   end
   module R = Register
+  module PC = struct
+    let program_counter = ref (u16 0x0400)
+
+    let get () = !program_counter
+    let set v = program_counter := v
+
+    let init () =
+      program_counter :=
+        mk_addr ~hi:(M.read (u16 0xFFFD)) ~lo:(M.read (u16 0xFFFC))
+
+    let reset () = set (u16 0x0400)
+  end
 
 
-  let mk_addr lo hi = lo lor (hi lsl 8)
   module Stack = struct
+    let total_addr () =
+      mk_addr ~hi:(u8 0x01) ~lo:(R.get `S)
+
     let push v =
-      M.write (0x0100 + R.get `S) v ;
-      R.set `S @@ (R.get `S - 1) land 0xFF
+      (* Addr = 0x01XX *)
+      M.write (total_addr ()) v ;
+      R.decr `S
 
     let push_addr v =
-      push (v lsr 8);
-      push (v land 0xFF)
+      push (get_hi v) ;
+      push (get_lo v)
 
     let pull () =
-      R.set `S @@ (R.get `S + 1) land 0xFF ;
-      M.read (0x0100 + R.get `S)
+      R.incr `S ;
+      M.read (total_addr ())
 
     let pull_addr () =
       let lo = pull () in
       let hi = pull () in
-      mk_addr lo hi
+      mk_addr ~lo ~hi
   end
 
   let reset () =
-    for i = 0 to 0xFFFF do M.write i 0x0 done ;
+    let open Uint8 in
+    for i = 0 to 0xFFFF do M.write (u16 i) zero done ;
     enable_decimal := true ;
     cycle_count := 0 ;
-    R.set `PC 0x0400 ;
-    R.set `A 0x0 ;
-    R.set `X 0x0 ;
-    R.set `Y 0x0 ;
-    R.set `P 0x24
-
-  let init_pc () =
-    R.set `PC @@ (M.read 0xFFFD lsl 8) lor (M.read 0xFFFC)
+    PC.reset () ;
+    R.set `A zero ;
+    R.set `X zero ;
+    R.set `Y zero ;
+    R.set `P (u8 0x24)
 
   module Location = struct
     type t =
       | None
-      | Immediate of int
+      | Immediate of uint8
       | Register of Register.t
-      | Address of int
+      | Address of uint16
     let get = function
       | Register r -> R.get r
       | Immediate n -> n
-      | Address a -> M.read (a land 0xFFFF)
+      | Address a -> M.read a
       | None -> assert false
     let set l v = match l with
       | Register r -> R.set r v
-      | Address a -> M.write (a land 0xFFFF) v
+      | Address a -> M.write a v
       | _ -> ()
     let ref = function
       | Address a -> a
@@ -122,8 +161,9 @@ module Make (M : Mmap) = struct
     | Absolute | Absolute_X | Absolute_Y | Indirect     -> 3
 
   module Flag = struct
-    type t = Mask of int
-    let mkflag n = Mask (1 lsl n)
+    open Uint8
+    type t = Mask of uint8
+    let mkflag n = Mask (shift_left one n)
     let carry = mkflag 0
     let zero = mkflag 1
     let interrupt = mkflag 2
@@ -136,21 +176,23 @@ module Make (M : Mmap) = struct
     let mask (Mask m) = m
 
     let set (Mask m) v =
-      let f = if v then R.get `P lor m
-        else R.get `P land (lnot m)
+      let p = R.get `P in
+      let f = if v then (logor p m)
+        else (logand p (lognot m))
       in R.set `P f
 
     let get (Mask m) =
-      if m land R.get `P <> 0 then true else false
-    let geti m = if get m then 1 else 0
+      if (logand m (R.get `P)) <> Uint8.zero then true else false
+    let geti m = if get m then one else Uint8.zero
 
-    let update_zero v = set zero (v = 0)
-    let update_neg v = set negative ((v lsr 7) land 0x1 = 1)
+    let update_zero v = set zero (v = Uint8.zero)
+    let update_neg v = set negative (get_bit v 7)
     let update_nz v = update_zero v; update_neg v
   end
 
   (* List of instructions *)
   module Instruction = struct
+    open Uint8
     type t = Location.t -> unit
 
     (* Load/Store *)
@@ -166,7 +208,7 @@ module Make (M : Mmap) = struct
     let _STA m = m <<- R.get `A
     let _STX m = m <<- R.get `X
     let _STY m = m <<- R.get `Y
-    let _SAX m = m <<- (R.get `A land R.get `X)
+    let _SAX m = m <<- logand (R.get `A) (R.get `X)
 
     (* Register transfers *)
     let gen_T f t =
@@ -183,7 +225,7 @@ module Make (M : Mmap) = struct
     let _TSX _ = gen_T `S `X
     let _TXS _ = R.set `S (R.get `X)
     let _PHA _ = Stack.push (R.get `A)
-    let _PHP _ = Stack.push (R.get `P lor (Flag.mask Flag.break))
+    let _PHP _ = Stack.push (logor (R.get `P) (Flag.mask Flag.break))
     let _PLA _ =
       R.set `A @@ Stack.pull ();
       Flag.update_nz (R.get `A)
@@ -198,25 +240,25 @@ module Make (M : Mmap) = struct
       R.set `A v;
       Flag.update_nz v
 
-    let _AND = gen_OP (land)
-    let _EOR = gen_OP (lxor)
-    let _ORA = gen_OP (lor)
+    let _AND = gen_OP logand
+    let _EOR = gen_OP logxor
+    let _ORA = gen_OP logor
     let _BIT m =
       let v = !!m in
-      let masked = R.get `A land v in
+      let masked = logand (R.get `A) v in
       Flag.update_zero masked;
-      Flag.set Flag.negative ((v lsr 7) land 0x1 = 1);
-      Flag.set Flag.overflow ((v lsr 6) land 0x1 = 1)
+      Flag.update_neg v;
+      Flag.set Flag.overflow (get_bit v 6)
 
     (* Arithmetic *)
-    let bcd_to_dec b = 
-      let lo = b land 0x0F in
-      let hi = b lsr 4 in
-      lo + hi * 10
-    let dec_to_bcd d =
-      let lo = d mod 10 in
-      let hi = d / 10 in
-      lo lor (hi lsl 4)
+    let bcd_to_dec (b : uint8) = 
+      let lo = logand b (u8 0x0F) in
+      let hi = shift_right_logical b 4 in
+      lo + hi * (u8 10)
+    let dec_to_bcd (d : uint8) =
+      let lo = rem d (u8 10) in
+      let hi = d / (u8 10) in
+      logor lo (shift_left hi 4)
 
     (* Addition : binary or decimal *)
     let _ADC m =
@@ -224,14 +266,17 @@ module Make (M : Mmap) = struct
       let decimal = Flag.get Flag.decimal && !enable_decimal in
       let pre = if decimal then bcd_to_dec else fun x -> x in
       let post = if decimal then dec_to_bcd else fun x -> x in
-      let max = if decimal then 99 else 0xFF in
-      let op1 = pre @@ R.get `A in
-      let op2 = pre v in
-      let c = Flag.geti Flag.carry in
-      let sum = op1 + op2 + c in
+      let max = if decimal then (u16 99) else (u16 0xFF) in
+      (* Convert ops to u16 to detect overflow *)
+      let op1 = Uint16.of_uint8 @@ pre @@ R.get `A in
+      let op2 = Uint16.of_uint8 @@ pre v in
+      let c = Uint16.of_uint8 @@ Flag.geti Flag.carry in
+      let sum = Uint16.(op1 + op2 + c) in
       Flag.set Flag.carry (sum > max);
-      let rsum = sum mod (max + 1) in
-      let overflow = ((R.get `A lxor rsum) land (v lxor rsum) land 0x80) <> 0 in
+      let rsum = Uint8.of_uint16 @@ Uint16.(rem sum (succ max)) in
+      let overflow = zero <>
+                     (logand (logand (u8 0x80) (logxor v rsum))
+                        (logxor (R.get `A) rsum)) in
       Flag.set Flag.overflow overflow;
       let v = post rsum in
       R.set `A v ;
@@ -241,28 +286,28 @@ module Make (M : Mmap) = struct
     let _SBC m =
       let c2 =
         if Flag.get Flag.decimal && !enable_decimal then
-          dec_to_bcd (100 - (bcd_to_dec !!m) - 1)
-        else (!!m lxor 0xFF) in
+          dec_to_bcd ((u8 100) - (bcd_to_dec !!m) - one)
+        else (lognot !!m) in (* probably a +1 or -1 here ?*)
       _ADC (Location.Immediate c2)
 
     let gen_CMP r m =
       let c = R.get r - !!m in
       Flag.update_nz c;
-      Flag.set Flag.carry (c >= 0)
+      Flag.set Flag.carry (R.get r >= !!m)
     let _CMP = gen_CMP `A
     let _CPX = gen_CMP `X
     let _CPY = gen_CMP `Y
 
     (* Increments & Decrements *)
-    let gen_CR v m =
-      let updated = (!!m + v) land 0xFF in
+    let gen_CR op m =
+      let updated = op !!m one in
       m <<- updated ;
       Flag.update_nz updated
 
-    let _INC = gen_CR 1
+    let _INC = gen_CR (+)
     let _INX _ = _INC (Location.Register `X)
     let _INY _ = _INC (Location.Register `Y)
-    let _DEC = gen_CR (-1)
+    let _DEC = gen_CR (-)
     let _DEX _ = _DEC (Location.Register `X)
     let _DEY _ = _DEC (Location.Register `Y)
 
@@ -271,32 +316,35 @@ module Make (M : Mmap) = struct
       let oldm = !!m in
       let nv = f oldm in
       m <<- nv;
-      Flag.set Flag.carry ((oldm lsr r) land 0x1 = 1);
+      Flag.set Flag.carry (get_bit oldm r) ;
       Flag.update_nz nv
 
-    let _ASL m = gen_SHIFT 7 (fun n -> (n lsl 1) land 0xFF) m
-    let _LSR m = gen_SHIFT 0 (fun n -> n lsr 1) m
-    let _ROL m = gen_SHIFT 7 (fun n -> ((n lsl 1) lor (Flag.geti Flag.carry)) land 0xFF) m
-    let _ROR m = gen_SHIFT 0 (fun n -> (n lsr 1) lor (Flag.geti Flag.carry lsl 7)) m
+    let _ASL m = gen_SHIFT 7 (fun n -> shift_left n 1) m
+    let _LSR m = gen_SHIFT 0 (fun n -> shift_right_logical n 1) m
+    let _ROL m = gen_SHIFT 7 (fun n -> logor (shift_left n 1) (Flag.geti Flag.carry)) m
+    let _ROR m = gen_SHIFT 0 (fun n ->
+        logor (shift_right_logical n 1) (shift_left (Flag.geti Flag.carry) 7)) m
 
     (* Jump and calls *)
-    let _JMP m = R.set `PC @@ Location.ref m
+    let _JMP m =
+      PC.set @@ Location.ref m
     let _JSR m =
-      Stack.push_addr (R.get `PC - 1);
+      Stack.push_addr Uint16.(pred @@ PC.get ());
       _JMP m
-    let _RTS _ = R.set `PC (Stack.pull_addr () + 1)
+    let _RTS _ = PC.set Uint16.(succ @@ Stack.pull_addr ())
 
     (* Branches *)
     let gen_BRANCH f s m =
       if Flag.get f = s then begin
-        let v = !!m in
-        let rel = if v > 0x7F 
-          then - (((lnot v) + 1) land 0xFF) else v in
-        let clip = (R.get `PC + rel) land 0xFFFF in
-        let cp = if (clip land 0xFF00) <> (R.get `PC land 0xFF00)
-          then 1 else 0 in
-        cycle_count := !cycle_count + 1 + cp ;
-        R.set `PC clip
+        (* Interpret as signed *)
+        let v = Int16.of_int8 @@ Int8.of_uint8 @@ !!m in
+        (* Add as signed operation *)
+        let next = Int16.((of_uint16 (PC.get ())) + v) in
+        (* Back to unsigned *)
+        let unext = Uint16.of_int16 next in
+        let cp = if (get_hi unext) <> (get_hi (PC.get ())) then 1 else 0 in
+        Stdlib.(cycle_count := !cycle_count + 1 + cp) ;
+        PC.set unext
       end
 
     let _BCC : t = gen_BRANCH Flag.carry false
@@ -319,31 +367,36 @@ module Make (M : Mmap) = struct
 
     (* System functions *)
     let _BRK _ =
-      Stack.push_addr (R.get `PC + 1);
+      Stack.push_addr (Uint16.succ @@ PC.get ()) ;
       Flag.set Flag.break true;
       Stack.push (R.get `P) ;
       Flag.set Flag.interrupt true;
-      R.set `PC @@ mk_addr (M.read 0xFFFE) (M.read 0xFFFF)
+      PC.set @@ mk_addr ~lo:(M.read (u16 0xFFFE)) ~hi:(M.read (u16 0xFFFF))
 
     let _RTI _ =
       R.set `P @@ Stack.pull ();
       Flag.set Flag.break false;
       Flag.set Flag.reserved true;
-      R.set `PC @@ Stack.pull_addr ()
+      PC.set @@ Stack.pull_addr ()
 
     let _NOP _ = ()
     let _UNO = _NOP
 
     module Decoding = struct
-      let triple opcode =
-        let ib = opcode lsr 2 in
-        let ia = ib lsr 3 in
-        (ia land 0x7, ib land 0x7, opcode land 0x3)
+      let triple (opcode : uint8) =
+        let open Uint8 in
+        let ib = shift_right_logical opcode 2 in
+        let ia = shift_right_logical opcode 5 in
+        (logand ia (u8 0x7),
+         logand ib (u8 0x7),
+         logand opcode (u8 0x3))
 
       let invalid_instruction a b c =
-        Printf.printf "Invalid instruction %.2X %d %d %d\n"
-          (M.read @@ R.get `PC) a b c ;
+        Format.printf "Invalid instruction %a %d %d %d\n"
+          pp_u8 (M.read @@ PC.get ()) a b c ;
         assert false
+
+      open Stdlib
 
       let c0 pc = function
         | Immediate -> 2 | Zero_Page -> 3
@@ -378,7 +431,8 @@ module Make (M : Mmap) = struct
                   [|_LDX,0; _LDX,0; _TAX,2; _LDX,0; _LDX,0; _LDX,0; _TSX,2; _LDX,0|];
                   [|_NOP,2; _DEC,7; _DEX,2; _DEC,7; _DEC,7; _DEC,7; _NOP,2; _DEC,7|];
                   [|_NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7|] |]
-      let rec get_fun a b c = match c with (* 6 3 1*)
+      let rec get_fun a b c = (* 1 3 0 *)
+        match c with (* 6 3 1*)
         | 0 -> t0.(a).(b)
         | 1 when a = 4 -> if b = 2 then (_NOP,2) else (_STA,1)
         | 1 -> t1.(a)
@@ -425,8 +479,9 @@ module Make (M : Mmap) = struct
         | _, 2, 5 -> Absolute_Y
         | _, _, _ -> Absolute_X
 
-      let decode opcode =
+      let decode (opcode : uint8) =
         let (a, b, c) = triple opcode in
+        let (a, b, c) = Uint8.(to_int a, to_int b, to_int c) in
         let f, cfi = get_fun a b c in
         let cf = if cfi = -1 then unofCycles a b c else cycFuns.(cfi) in
         let am = get_am a b c in
@@ -435,72 +490,78 @@ module Make (M : Mmap) = struct
   end
 
   let print_state () =
-    let pc = R.get `PC in
+    let pc = PC.get () in
     let opcode = M.read pc in
     let (_, _, am) = Instruction.Decoding.decode opcode in
     let size = addressing_mode_size am in
-    Printf.printf "%.4X  " pc ;
-    for i = 0 to size - 1 do Printf.printf "%.2X " (M.read (pc + i)) done ;
-    Printf.printf "\t\t A:%.2X X:%.2X Y:%.2X P:%.2X SP:%.2X CYC:%3d\n%!"
-      (R.get `A) (R.get `X) (R.get `Y) (R.get `P) (R.get `S)
-      (!cycle_count * 3 mod 341)
+    Format.printf "%a  " pp_u16 pc ;
+    for i = 0 to size - 1 do
+      Format.printf "%a " pp_u8 (M.read Uint16.(pc + (u16 i)))
+    done ;
+    Format.printf "\t\t A:%a X:%a Y:%a P:%a SP:%a CYC:%3d\n%!"
+     pp_u8 (R.get `A) pp_u8 (R.get `X) pp_u8 (R.get `Y) pp_u8 (R.get `P)
+     pp_u8 (R.get `S) Stdlib.(!cycle_count * 3 mod 341)
 
-  let get_page v = v lsr 8
+  (* Returns packaged location and if page was crossed *)
   let package_arg am =
-    let b1 = R.get `PC + 1 in
-    let b2 = R.get `PC + 2 in
+    let get_page = get_hi in
+    let pc = PC.get () in
+    let b1 = Uint16.(u16 1 + pc) in
+    let b2 = Uint16.(u16 2 + pc) in
     let v1 = M.read b1 in
     let v2 = M.read b2 in
-    let v12 = v1 lor (v2 lsl 8) in
+    let v12 = mk_addr ~hi:v2 ~lo:v1 in
     let absolute r =
       let v = R.get r in
-      Location.Address (v + v12), get_page v12 <> get_page (v + v12)
+      let total = Uint16.((of_uint8 v) + v12) in
+      Location.Address total, get_page v12 <> get_page total
     in match am with
     | Implicit -> Location.None, false
     | Accumulator -> Location.Register `A, false
     | Immediate -> Location.Immediate v1, false
-    | Zero_Page -> Location.Address v1, false
+    | Zero_Page -> Location.Address (Uint16.of_uint8 v1), false
     | Zero_Page_X ->
-      Location.Address ((v1 + R.get `X) land 0xFF), false
+      Location.Address (Uint16.of_uint8 (Uint8.(v1 + R.get `X))), false
     | Zero_Page_Y ->
-      Location.Address ((v1 + R.get `Y) land 0xFF), false
+      Location.Address (Uint16.of_uint8 (Uint8.(v1 + R.get `Y))), false
     | Relative -> Location.Immediate v1, false
     | Absolute -> Location.Address v12, false
     | Absolute_X -> absolute `X
     | Absolute_Y -> absolute `Y
     | Indirect ->
       (* Second byte of target wrap around in page *)
-      let sto_addr_hi = ((v12 + 1) land 0xFF) lor (v12 land 0xFF00) in
-      Location.Address (M.read v12 lor (M.read sto_addr_hi lsl 8)), false
+      let sto_addr_hi = mk_addr ~hi:(get_hi v12) ~lo:Uint8.(succ @@ get_lo v12) in
+      Location.Address (mk_addr ~hi:(M.read sto_addr_hi) ~lo:(M.read v12)), false
     | Indexed_Indirect (*X*) -> 
-      let sto_addr = (v1 + R.get `X) land 0xFF in
+      let sto_addr = Uint8.(v1 + R.get `X) in
       (* Second byte of target wrap around in zero page *)
-      let sto_addr_hi = (sto_addr + 1) land 0xFF in
-      Location.Address (M.read sto_addr lor (M.read sto_addr_hi lsl 8)), false
+      let sto_addr_hi = Uint16.of_uint8 @@ Uint8.(succ sto_addr) in
+      Location.Address (mk_addr ~hi:(M.read sto_addr_hi) 
+                          ~lo:(M.read @@ Uint16.of_uint8 sto_addr)), false
     | Indirect_Indexed (*Y*) ->
       (* Second byte of target wrap around in zero page *)
-      let sto_addr_hi = (v1 + 1) land 0xFF in
-      let sto = M.read v1 lor (M.read sto_addr_hi lsl 8) in
-      Location.Address (sto + R.get `Y),
-      get_page sto <> get_page (R.get `Y + sto)
+      let sto_addr_hi = Uint16.of_uint8 @@ Uint8.(succ v1) in
+      let sto = mk_addr ~hi:(M.read sto_addr_hi) ~lo:(M.read @@ Uint16.of_uint8 v1) in
+      let addr = Uint16.(sto + of_uint8 (R.get `Y)) in
+      Location.Address addr, get_page sto <> get_page addr
 
   let fetch_instr () =
-    let opcode = M.read @@ R.get `PC in
+    let opcode = M.read @@ PC.get () in
     let (f, cf, am) = Instruction.Decoding.decode opcode in
-    let (arg, pc) = package_arg am in
+    let (arg, page_crossed) = package_arg am in
     let mode_size = addressing_mode_size am in
-    R.set `PC (R.get `PC + mode_size) ;
-    let cycles_elapsed = cf pc am in
+    PC.set Uint16.(PC.get () + (u16 mode_size)) ;
+    let cycles_elapsed = cf page_crossed am in
     cycle_count := !cycle_count + cycles_elapsed ;
     (* Reserved bit always on *) 
     Flag.set Flag.reserved true;
     f arg
 
   let interrupt () =
-    Stack.push_addr (R.get `PC) ;
+    Stack.push_addr (PC.get ()) ;
     Stack.push (R.get `P) ;
     Flag.set Flag.interrupt true;
-    R.set `PC @@ mk_addr (M.read 0xFFFA) (M.read 0xFFFB)
+    PC.set @@ mk_addr ~hi:(M.read (u16 0xFFFA)) ~lo:(M.read (u16 0xFFFB))
 
   module M = M
 end
