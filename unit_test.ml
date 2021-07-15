@@ -40,14 +40,18 @@ let test1 () =
   let continue = ref true in
   SCpu.PC.set (u16 0x400) ;
   SCpu.Register.set `P (u8 0) ;
+  let start = Sys.time () in
   while !continue do
     let back = get_pc () in
     SCpu.fetch_instr () ;
     if back = get_pc () then
       continue := false
   done ;
+  let time_taken = Sys.time () -. start in
+  let instr_per_s = (float_of_int !SCpu.cycle_count) /. time_taken in
+  let to_mhz = instr_per_s /. 1000000. in
   if get_pc () = (u16 0x3469) then
-    Format.printf "Functional tests ..... OK\n%!"
+    Format.printf "Functional tests ..... OK (freq: %.2f MHz)\n%!" to_mhz
   else Format.printf "Functional tests ..... KO (trap at %a)%!\n"
       Uint16.printer (get_pc ())
 

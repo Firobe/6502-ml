@@ -1,4 +1,5 @@
 open Stdint
+exception Invalid_instruction of uint16 * uint8
 
 let u8 = Uint8.of_int
 let u16 = Uint16.of_int
@@ -391,10 +392,10 @@ module Make (M : Mmap) = struct
          logand ib (u8 0x7),
          logand opcode (u8 0x3))
 
-      let invalid_instruction a b c =
-        Format.printf "Invalid instruction %a %d %d %d\n"
-          pp_u8 (M.read @@ PC.get ()) a b c ;
-        assert false
+      let invalid_instruction () =
+        let addr = PC.get () in
+        let opcode = M.read addr in
+        raise (Invalid_instruction (addr, opcode))
 
       open Stdlib
 
@@ -471,7 +472,7 @@ module Make (M : Mmap) = struct
         | 3, _, _ -> Absolute
         | 4, 0, _ -> Relative
         | 4, 1, _ -> Indirect_Indexed
-        | 4, _, _ -> invalid_instruction a b c
+        | 4, _, _ -> invalid_instruction ()
         | 5, c, a when a < 4 || a > 5 || c <> 2 -> Zero_Page_X
         | 5, _, _ -> Zero_Page_Y
         | 6, 1, _ -> Absolute_Y

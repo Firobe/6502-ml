@@ -1,4 +1,5 @@
 open Stdint
+exception Invalid_instruction of uint16 * uint8
 
 module type Mmap = sig
   val read : uint16 -> uint8
