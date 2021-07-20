@@ -141,6 +141,12 @@ module Int_utils : sig
   val u16 : int -> uint16
   (** {!type:uint16} from OCaml {!type:int} *)
 
+  val u8of16 : uint16 -> uint8
+  (** Cast a 16-bit integer to 8-bit one *)
+
+  val u16of8 : uint8 -> uint16
+  (** Cast a 8-bit integer to 16-bit one *)
+
   val pp_u8 : Format.formatter -> uint8 -> unit
   (** Print an {!type:uint8} as 0xYY *)
 
