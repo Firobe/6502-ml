@@ -5,8 +5,9 @@
 	(modules cpu)
 )
 
-(executable
-	(name unit_test)
-	(libraries re str 6502-ml)
-	(modules unit_test)
-)
+(test 
+  (name unit_test)
+  (deps (source_tree test_roms/))
+  (libraries re str 6502-ml)
+  (modules unit_test)
+  )
