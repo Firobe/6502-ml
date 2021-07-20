@@ -1,13 +1,12 @@
 # 6502-ml
 6502 chip family simulator in OCaml
 
-Exposed as a library through `cpu.mli`  
-`jbuilder build unit_test.exe` creates `_build/default/unit_test.exe` which takes a path to a ROM in argument and launch the CPU on it, beginning at `PC=0x400`, stopping when encountering a trap.  
+**Documentation** containing simple examples and reference is available [online](https://firobe.fr/6502-ml/).
 
-The CPU passes all functional tests of [Klaus Dormann's test suite](https://github.com/Klaus2m5/6502_65C02_functional_tests) (`klaus.bin` is an assembled of `6502_functional_test.a65) and the [Nestest ROM](http://www.qmtpro.com/~nes/misc/nestest.txt)  
+The CPU passes all functional tests of [Klaus Dormann's test suite](https://github.com/Klaus2m5/6502_65C02_functional_tests) (`klaus.bin` is an assembly of `6502_functional_test.a65`) and the [Nestest ROM](http://www.qmtpro.com/~nes/misc/nestest.txt) as compared to Nintendulator.  
 
-It's zero page starts at address `0x0000`  
-Cycles count is accurate even for supported unofficial instructions, and tested  
+Its zero page starts at address `0x0000`.  
+Cycles count is accurate even for supported unofficial instructions, and tested.  
 
 Great ressources used :
 - http://www.6502.org/tutorials/
@@ -16,10 +15,7 @@ Great ressources used :
 - http://www.masswerk.at/6502/6502_instruction_set.html
 - http://nesdev.com/6502_cpu.txt
 
-## Installation
+## Usage
 
-Dependencies : none for the library, `re` and `str` for the tests
-- Run `dune build @install`
-- Then `dune install`
-- Compile and run the tests with `dune build unit_test.exe` then
-  `dune exec ./unit_test.exe`
+- Build and install with `opam install .`
+- Launch tests with `dune test`
