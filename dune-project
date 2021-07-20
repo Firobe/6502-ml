@@ -12,10 +12,10 @@
 
 (package
  (name 6502-ml)
- (synopsis "An OCaml library for HTTP clients and servers")
- (description "A longer description")
+ (synopsis "Library for the simulation 6502 chip family")
+ (description "Library for the simulation 6502 chip family")
  (depends
-  (stdint (>= 0.7.0))
-  (dune (>= 2.8.0))
+  stdint
+  (dune :build)
   (re :with-test)
   (str :wth-test)))

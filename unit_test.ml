@@ -1,7 +1,7 @@
 open Stdint
-open Cpu.Int_utils
+open C6502.Int_utils
 
-module SCpu = Cpu.Make (struct
+module SCpu = C6502.MakeCPU (struct
     (* 0x000 to 0xFFFF main memory *)
     let mem = Array.make 0x10000 Uint8.zero
     let read a = mem.(Uint16.to_int a)

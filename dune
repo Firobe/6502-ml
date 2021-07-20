@@ -1,8 +1,8 @@
 (library
-	(name cpu)
+	(name c6502)
 	(public_name 6502-ml)
     (libraries stdint)
-	(modules cpu)
+    (modules c6502)
 )
 
 (test 

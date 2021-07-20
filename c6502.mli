@@ -12,13 +12,13 @@ module Int_utils : sig
   val get_bit : uint8 -> int -> bool
 end
 
-module type Mmap = sig
+module type MemoryMap = sig
   val read : uint16 -> uint8
   val write : uint16 -> uint8 -> unit
 end
 
-module type Full = sig
-  module M : Mmap
+module type CPU = sig
+  module M : MemoryMap
 
   module Register : sig
     type t = [`S | `A | `X | `Y | `P]
@@ -41,4 +41,4 @@ module type Full = sig
   val interrupt : unit -> unit
 end
 
-module Make : functor (M : Mmap) -> Full
+module MakeCPU : functor (M : MemoryMap) -> CPU
