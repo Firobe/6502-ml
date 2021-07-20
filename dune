@@ -5,6 +5,8 @@
     (modules c6502)
 )
 
+(documentation (mld_files :standard))
+
 (test 
   (name unit_test)
   (deps (source_tree test_roms/))
