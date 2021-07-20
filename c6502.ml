@@ -29,10 +29,9 @@ end
 
 module type CPU = sig
   module M : MemoryMap
-
+  val print_state : unit -> unit
   module Register : sig
-    type t = [`S | `A | `X | `Y | `P]
-
+    type t = [`S | `A | `X | `Y | `P ]
     val get : t -> uint8
     val set : t -> uint8 -> unit
   end
@@ -41,12 +40,9 @@ module type CPU = sig
     val set : uint16 -> unit
     val init : unit -> unit
   end
-
-
   val enable_decimal : bool ref
   val cycle_count : int ref
   val fetch_instr : unit -> unit
-  val print_state : unit -> unit
   val reset : unit -> unit
   val interrupt : unit -> unit
 end
