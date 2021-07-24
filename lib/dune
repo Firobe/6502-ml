@@ -3,14 +3,6 @@
 	(public_name 6502-ml)
     (libraries stdint)
     (preprocess (pps stdint-literals))
-    (modules c6502)
 )
 
 (documentation (mld_files :standard))
-
-(test 
-  (name unit_test)
-  (deps (source_tree test_roms/))
-  (libraries re str 6502-ml)
-  (modules unit_test)
-  )
