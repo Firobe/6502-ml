@@ -16,6 +16,7 @@
  (description "Library for the simulation 6502 chip family")
  (depends
   stdint
+  stdint-literals
   (dune :build)
   (re :with-test)
   (str :wth-test)))

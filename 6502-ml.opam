@@ -9,6 +9,7 @@ homepage: "https://github.com/Firobe/6502-ml"
 bug-reports: "https://github.com/Firobe/6502-ml/issues"
 depends: [
   "stdint"
+  "stdint-literals"
   "dune" {>= "2.9" & build}
   "re" {with-test}
   "str" {wth-test}

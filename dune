@@ -2,6 +2,7 @@
 	(name c6502)
 	(public_name 6502-ml)
     (libraries stdint)
+    (preprocess (pps stdint-literals))
     (modules c6502)
 )
 

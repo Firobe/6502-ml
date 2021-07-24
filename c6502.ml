@@ -57,11 +57,11 @@ module MakeCPU (M : MemoryMap) : CPU = struct
 
     (* Registers *)
     open Uint8
-    let stack_pointer = ref (u8 0xFF)
+    let stack_pointer = ref 0xFFu
     let acc = ref zero
     let irx = ref zero
     let iry = ref zero
-    let processor_status = ref (u8 0x24)
+    let processor_status = ref 0x24u
 
     let map = function
       | `S -> stack_pointer
@@ -77,22 +77,22 @@ module MakeCPU (M : MemoryMap) : CPU = struct
   end
   module R = Register
   module PC = struct
-    let program_counter = ref (u16 0x0400)
+    let program_counter = ref 0x0400U
 
     let get () = !program_counter
     let set v = program_counter := v
 
     let init () =
       program_counter :=
-        mk_addr ~hi:(M.read (u16 0xFFFD)) ~lo:(M.read (u16 0xFFFC))
+        mk_addr ~hi:(M.read 0xFFFDU) ~lo:(M.read 0xFFFCU)
 
-    let reset () = set (u16 0x0400)
+    let reset () = set 0x0400U
   end
 
 
   module Stack = struct
     let total_addr () =
-      mk_addr ~hi:(u8 0x01) ~lo:(R.get `S)
+      mk_addr ~hi:0x01u ~lo:(R.get `S)
 
     let push v =
       (* Addr = 0x01XX *)
@@ -122,7 +122,7 @@ module MakeCPU (M : MemoryMap) : CPU = struct
     R.set `A zero ;
     R.set `X zero ;
     R.set `Y zero ;
-    R.set `P (u8 0x24)
+    R.set `P 0x24u
 
   module Location = struct
     type t =
@@ -252,12 +252,12 @@ module MakeCPU (M : MemoryMap) : CPU = struct
 
     (* Arithmetic *)
     let bcd_to_dec (b : uint8) = 
-      let lo = logand b (u8 0x0F) in
+      let lo = logand b 0x0Fu in
       let hi = shift_right_logical b 4 in
-      lo + hi * (u8 10)
+      lo + hi * 10u
     let dec_to_bcd (d : uint8) =
-      let lo = rem d (u8 10) in
-      let hi = d / (u8 10) in
+      let lo = rem d 10u in
+      let hi = d / 10u in
       logor lo (shift_left hi 4)
 
     (* Addition : binary or decimal *)
@@ -266,7 +266,7 @@ module MakeCPU (M : MemoryMap) : CPU = struct
       let decimal = Flag.get Flag.decimal && !enable_decimal in
       let pre = if decimal then bcd_to_dec else fun x -> x in
       let post = if decimal then dec_to_bcd else fun x -> x in
-      let max = if decimal then (u16 99) else (u16 0xFF) in
+      let max = if decimal then 99U else 0xFFU in
       (* Convert ops to u16 to detect overflow *)
       let op1 = u16of8 @@ pre @@ R.get `A in
       let op2 = u16of8 @@ pre v in
@@ -275,7 +275,7 @@ module MakeCPU (M : MemoryMap) : CPU = struct
       Flag.set Flag.carry (sum > max);
       let rsum = u8of16 @@ Uint16.(rem sum (succ max)) in
       let overflow = zero <>
-                     (logand (logand (u8 0x80) (logxor v rsum))
+                     (logand (logand 0x80u (logxor v rsum))
                         (logxor (R.get `A) rsum)) in
       Flag.set Flag.overflow overflow;
       let v = post rsum in
@@ -286,7 +286,7 @@ module MakeCPU (M : MemoryMap) : CPU = struct
     let _SBC m =
       let c2 =
         if Flag.get Flag.decimal && !enable_decimal then
-          dec_to_bcd ((u8 100) - (bcd_to_dec !!m) - one)
+          dec_to_bcd (100u - (bcd_to_dec !!m) - one)
         else (lognot !!m) in (* probably a +1 or -1 here ?*)
       _ADC (Location.Immediate c2)
 
@@ -387,9 +387,7 @@ module MakeCPU (M : MemoryMap) : CPU = struct
         let open Uint8 in
         let ib = shift_right_logical opcode 2 in
         let ia = shift_right_logical opcode 5 in
-        (logand ia (u8 0x7),
-         logand ib (u8 0x7),
-         logand opcode (u8 0x3))
+        (logand ia 7u, logand ib 7u, logand opcode 3u)
 
       let invalid_instruction () =
         let addr = PC.get () in
@@ -506,8 +504,8 @@ module MakeCPU (M : MemoryMap) : CPU = struct
   let package_arg am =
     let get_page = get_hi in
     let pc = PC.get () in
-    let b1 = Uint16.(u16 1 + pc) in
-    let b2 = Uint16.(u16 2 + pc) in
+    let b1 = Uint16.(pc + 1U) in
+    let b2 = Uint16.(pc + 2U) in
     let v1 = M.read b1 in
     let v2 = M.read b2 in
     let v12 = mk_addr ~hi:v2 ~lo:v1 in
@@ -561,7 +559,7 @@ module MakeCPU (M : MemoryMap) : CPU = struct
     Stack.push_addr (PC.get ()) ;
     Stack.push (R.get `P) ;
     Flag.set Flag.interrupt true;
-    PC.set @@ mk_addr ~lo:(M.read (u16 0xFFFA)) ~hi:(M.read (u16 0xFFFB))
+    PC.set @@ mk_addr ~lo:(M.read 0xFFFAU) ~hi:(M.read 0xFFFBU)
 
   module M = M
 end
