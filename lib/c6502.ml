@@ -20,8 +20,6 @@ module Int_utils = struct
     Uint8.(one = (logand (shift_right_logical x n) one))
 end
 
-open Int_utils
-
 module type MemoryMap = sig
   val read : uint16 -> uint8
   val write : uint16 -> uint8 -> unit
@@ -76,6 +74,7 @@ module MakeCPU (M : MemoryMap) : CPU = struct
     let decr r = (map r) := (pred !(map r))
   end
   module R = Register
+  open Int_utils
   module PC = struct
     let program_counter = ref 0x0400U
 
