@@ -56,17 +56,9 @@ module type MemoryMap = sig
       [a]. *)
 end
 
-(** A full CPU as obtained with {!module:MakeCPU}.
-
-    This module contains the mutable state of the CPU. The state can be
-    inspected and altered with the various setters and getters of
-    {!module:Register} and {!module:PC}.
-
-    Make a {!module-type:CPU} with a {!module-type:MemoryMap}.
-
-    The two important functions relevant to simulation are {!fetch_instr} and
-    {!interrupt}. *)
-module MakeCPU : functor (M : MemoryMap) -> sig
+module type CPU = sig
+  type mem
+  type input
   (** The memory map of the CPU. You can use {!M.read} and {!M.write} to access
       the CPU memory space. *)
 
@@ -107,7 +99,7 @@ module MakeCPU : functor (M : MemoryMap) -> sig
     val set : t -> uint16 -> unit
     (** Set the current address of the PC. *)
 
-    val init : t -> M.t -> unit
+    val init : t -> mem -> unit
     (** Set the PC by reading a full 16-bit address stored at [0xFFF[C-D]]
         (little-endian). *)
   end
@@ -116,12 +108,12 @@ module MakeCPU : functor (M : MemoryMap) -> sig
   (** Representation of the whole CPU state, including its linked devices. Every
       function modifies this representation in place. *)
 
-  val create : M.input -> t
+  val create : input -> t
   (** Return the power-up state of the whole system *)
 
   val pc : t -> PC.t
   val registers : t -> Register.t
-  val memory : t -> M.t
+  val memory : t -> mem
 
   val enable_decimal : t -> bool -> unit
   (** Determines if the decimal flag of the processor has any effect in
@@ -155,6 +147,18 @@ module MakeCPU : functor (M : MemoryMap) -> sig
         byte pointed by PC. *)
 end
 
+(** A full CPU as obtained with {!module:MakeCPU}.
+
+    This module contains the mutable state of the CPU. The state can be
+    inspected and altered with the various setters and getters of
+    {!module:Register} and {!module:PC}.
+
+    Make a {!module-type:CPU} with a {!module-type:MemoryMap}.
+
+    The two important functions relevant to simulation are {!fetch_instr} and
+    {!interrupt}. *)
+module Make : functor (M : MemoryMap) ->
+  (CPU with type mem := M.t and type input := M.input)
 (** Some helper functions to make life easier with fixed-size integers.
 
     Mostly aliases for some {!module:Stdint} functions. *)

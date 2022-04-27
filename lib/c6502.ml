@@ -28,7 +28,35 @@ module type MemoryMap = sig
   val write : t -> uint16 -> uint8 -> unit
 end
 
-module MakeCPU (M : MemoryMap) = struct
+module type CPU = sig
+  type mem
+  type input
+  module Register : sig
+    type register = [ `S | `A | `X | `Y | `P ]
+    type t
+    val get : t -> register -> uint8
+    val set : t -> register -> uint8 -> unit
+  end
+  module PC : sig
+    type t
+    val get : t -> uint16
+    val set : t -> uint16 -> unit
+    val init : t -> mem -> unit
+  end
+  type t
+  val create : input -> t
+  val pc : t -> PC.t
+  val registers : t -> Register.t
+  val memory : t -> mem
+  val enable_decimal : t -> bool -> unit
+  val cycle_count : t -> int
+  val fetch_instr : t -> unit
+  val reset : t -> unit
+  val interrupt : t -> unit
+  val print_state : t -> unit
+end
+
+module Make (M : MemoryMap) = struct
   module Register = struct
     type t = {
       mutable stack_pointer : uint8;

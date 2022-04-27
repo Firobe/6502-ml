@@ -1,7 +1,7 @@
 open Stdint
 open C6502.Int_utils
 
-module SCpu = C6502.MakeCPU (struct
+module SCpu = C6502.Make (struct
     type t = uint8 array
     type input = string (* rom path *)
 
