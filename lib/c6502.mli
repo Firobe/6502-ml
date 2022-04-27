@@ -39,10 +39,19 @@ exception Invalid_instruction of uint16 * uint8
     Addresses can use the full range of an {!type:uint16}: from [0x0000] to
     [0xFFFF]. *)
 module type MemoryMap = sig
-  val read : uint16 -> uint8
+  type t
+  (** Type representing a mutable address space *)
+
+  type input
+  (** Type representing the information needed to initialize memory *)
+
+  val create : input -> t
+  (** Create the initial power-up memory *)
+
+  val read : t -> uint16 -> uint8
   (** [read a] defines the behavior when trying to read from address [a]. *)
 
-  val write : uint16 -> uint8 -> unit
+  val write : t -> uint16 -> uint8 -> unit
   (** [write a v] defines the behavior when trying to write value [v] to address
       [a]. *)
 end
@@ -53,35 +62,35 @@ end
     inspected and altered with the various setters and getters of
     {!module:Register} and {!module:PC}.
 
+    Make a {!module-type:CPU} with a {!module-type:MemoryMap}.
+
     The two important functions relevant to simulation are {!fetch_instr} and
     {!interrupt}. *)
-module type CPU = sig
-  module M : MemoryMap
+module MakeCPU : functor (M : MemoryMap) -> sig
   (** The memory map of the CPU. You can use {!M.read} and {!M.write} to access
       the CPU memory space. *)
 
   (** {2 State of the CPU} *)
 
-  val print_state : unit -> unit
-    (** Print the content of the registers, PC, the cycle count and the current
-        byte pointed by PC. *)
-
   (** Access and modify the content of the 8-bit registers of the CPU. *)
   module Register : sig
-    type t = [`S (** Stack pointer *)
-             | `A (** Accumulator *)
-             | `X (** X index *)
-             | `Y (** Y index *)
-             | `P (** Processor status *)
-             ]
+    type register = [ `S (** Stack pointer *)
+                    | `A (** Accumulator *)
+                    | `X (** X index *)
+                    | `Y (** Y index *)
+                    | `P (** Processor status *)
+                    ]
     (** The different 8-bit registers, represented by polymorphic variants.
         Every register defaults to zero at startup, except the processor status
         which defaults to [0x24]. *)
 
-    val get : t -> uint8
+    type t
+    (** Representation of the state of all registers *)
+
+    val get : t -> register -> uint8
     (** Get the current value of a register. *)
 
-    val set : t -> uint8 -> unit
+    val set : t -> register -> uint8 -> unit
     (** Change the value of a register. *)
   end
 
@@ -89,47 +98,62 @@ module type CPU = sig
 
       The PC defaults to [0x400] at startup and upon reset. *)
   module PC : sig
-    val get : unit -> uint16
+    type t
+    (** Representation of the PC *)
+
+    val get : t -> uint16
     (** Get the current address of the PC. *)
 
-    val set : uint16 -> unit
+    val set : t -> uint16 -> unit
     (** Set the current address of the PC. *)
 
-    val init : unit -> unit
+    val init : t -> M.t -> unit
     (** Set the PC by reading a full 16-bit address stored at [0xFFF[C-D]]
         (little-endian). *)
   end
 
-  val enable_decimal : bool ref
+  type t
+  (** Representation of the whole CPU state, including its linked devices. Every
+      function modifies this representation in place. *)
+
+  val create : M.input -> t
+  (** Return the power-up state of the whole system *)
+
+  val pc : t -> PC.t
+  val registers : t -> Register.t
+  val memory : t -> M.t
+
+  val enable_decimal : t -> bool -> unit
   (** Determines if the decimal flag of the processor has any effect in
       instructions [ADC] and [SBC]. Indeed, some machines (such as the NES)
       completely disable decimal mode at the hardware level.
 
       Default to [true]. *)
 
-  val cycle_count : int ref
+  val cycle_count : t -> int
   (** How many cycles have elapsed during the last reset. *)
 
   (** {2 Simulation} *)
 
-  val fetch_instr : unit -> unit
+  val fetch_instr : t -> unit
   (** Fetches, decodes and executes the next instruction, modifying the
       current state according to the simulation.
 
       This is the {e main entry point} of the simulation. *)
 
-  val reset : unit -> unit
+  val reset : t -> unit
   (** Completely restore the default state of the CPU, wiping the CPU memory
       space with zeroes. *)
 
-  val interrupt : unit -> unit
+  val interrupt : t -> unit
   (** Simulate an harware interrupt of the processor, effectively suspending the
       current context to call the interrupt handler (whose address is stored at
       [0xFFF[A-B]]). *)
-end
 
-(** Make a {!module-type:CPU} with a {!module-type:MemoryMap}. *)
-module MakeCPU : functor (M : MemoryMap) -> CPU
+  val print_state : t -> unit
+    (** Print the content of the registers, PC, the cycle count and the current
+        byte pointed by PC. *)
+end
 
 (** Some helper functions to make life easier with fixed-size integers.
 
