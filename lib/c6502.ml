@@ -57,6 +57,8 @@ module type CPU = sig
 end
 
 module Make (M : MemoryMap) = struct
+  type input = M.input
+  type mem = M.t
   module Register = struct
     type t = {
       mutable stack_pointer : uint8;

@@ -158,7 +158,7 @@ end
     The two important functions relevant to simulation are {!fetch_instr} and
     {!interrupt}. *)
 module Make : functor (M : MemoryMap) ->
-  (CPU with type mem := M.t and type input := M.input)
+  (CPU with type mem = M.t and type input = M.input)
 (** Some helper functions to make life easier with fixed-size integers.
 
     Mostly aliases for some {!module:Stdint} functions. *)
