@@ -28,6 +28,14 @@ module type MemoryMap = sig
   val write : t -> uint16 -> uint8 -> unit
 end
 
+module IRQ_collector = struct
+  type key = string
+  type t = (key, bool) Hashtbl.t
+  let is_pulled t = Hashtbl.fold (fun _ x a -> x || a) t false
+  let set_pulled t id b = Hashtbl.replace t id b
+  let create () = Hashtbl.create 3
+end
+
 module type CPU = sig
   type mem
   type input
@@ -44,15 +52,15 @@ module type CPU = sig
     val init : t -> mem -> unit
   end
   type t
-  val create : input -> t
+  val create : ?collector:IRQ_collector.t -> input -> t
   val pc : t -> PC.t
   val registers : t -> Register.t
   val memory : t -> mem
   val enable_decimal : t -> bool -> unit
   val cycle_count : t -> int
-  val fetch_instr : t -> unit
+  val next_cycle : t -> unit
   val reset : t -> unit
-  val interrupt : t -> unit
+  val nmi : t -> unit
   val print_state : t -> unit
 end
 
@@ -118,14 +126,16 @@ module Make (M : MemoryMap) = struct
     mem : M.t;
     reg : Register.t;
     pc : PC.t;
+    irq_collector : IRQ_collector.t;
     mutable enable_decimal : bool;
     mutable cycle_count : int
   }
 
-  let create rom = {
+  let create ?(collector=IRQ_collector.create ()) rom = {
     mem = M.create rom;
     reg = Register.create ();
     pc = PC.create ();
+    irq_collector = collector;
     enable_decimal = true;
     cycle_count = 0
   }
@@ -213,7 +223,7 @@ module Make (M : MemoryMap) = struct
     let mkflag n = Mask (shift_left one n)
     let carry = mkflag 0
     let zero = mkflag 1
-    let interrupt = mkflag 2
+    let interrupt = mkflag 2 (* DISABLES interrupts when off *)
     let decimal = mkflag 3
     let break = mkflag 4
     let reserved = mkflag 5
@@ -580,7 +590,17 @@ module Make (M : MemoryMap) = struct
       let addr = Uint16.(sto + of_uint8 (R.get st.reg `Y)) in
       Location.Address addr, get_page sto <> get_page addr
 
-  let fetch_instr st =
+  let next_cycle st =
+    (* Check for interrupts *)
+    if (not @@ Flag.get st Flag.interrupt) &&
+       IRQ_collector.is_pulled st.irq_collector then (
+      Stack.push_addr st (PC.get st.pc) ;
+      Stack.push st (R.get st.reg `P) ;
+      Flag.set st Flag.interrupt true;
+      PC.set st.pc @@
+      mk_addr ~lo:(M.read st.mem (u16 0xFFFE)) ~hi:(M.read st.mem (u16 0xFFFF))
+    );
+    (* Continue as normal *)
     let opcode = M.read st.mem @@ PC.get st.pc in
     let (f, cf, am) = Instruction.Decoding.decode st opcode in
     let (arg, page_crossed) = package_arg st am in
@@ -592,7 +612,7 @@ module Make (M : MemoryMap) = struct
     Flag.set st Flag.reserved true;
     f st arg
 
-  let interrupt st =
+  let nmi st =
     Stack.push_addr st (PC.get st.pc) ;
     Stack.push st (R.get st.reg `P) ;
     Flag.set st Flag.interrupt true;

@@ -56,6 +56,20 @@ module type MemoryMap = sig
       [a]. *)
 end
 
+(** Mutable data structure, serving as a collector for device IRQs. Devices are
+    meant to use this interface to change their IRQ output, and it is read by the
+    CPU.
+    Different devices must have different identifiers, and their outputs are
+    OR'ed.
+*)
+module IRQ_collector : sig
+  type key = string
+  type t
+  val is_pulled : t -> bool
+  val set_pulled : t -> key -> bool -> unit
+  val create : unit -> t
+end
+
 module type CPU = sig
   type mem
   type input
@@ -108,7 +122,7 @@ module type CPU = sig
   (** Representation of the whole CPU state, including its linked devices. Every
       function modifies this representation in place. *)
 
-  val create : input -> t
+  val create : ?collector:IRQ_collector.t -> input -> t
   (** Return the power-up state of the whole system *)
 
   val pc : t -> PC.t
@@ -127,7 +141,7 @@ module type CPU = sig
 
   (** {2 Simulation} *)
 
-  val fetch_instr : t -> unit
+  val next_cycle : t -> unit
   (** Fetches, decodes and executes the next instruction, modifying the
       current state according to the simulation.
 
@@ -137,8 +151,8 @@ module type CPU = sig
   (** Completely restore the default state of the CPU, wiping the CPU memory
       space with zeroes. *)
 
-  val interrupt : t -> unit
-  (** Simulate an harware interrupt of the processor, effectively suspending the
+  val nmi : t -> unit
+  (** Simulate a non-maskable interrupt of the processor, effectively suspending the
       current context to call the interrupt handler (whose address is stored at
       [0xFFF[A-B]]). *)
 

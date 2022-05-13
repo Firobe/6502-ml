@@ -33,7 +33,7 @@ let test1 () =
   let start = Sys.time () in
   while !continue do
     let back = get_pc cpu in
-    SCpu.fetch_instr cpu ;
+    SCpu.next_cycle cpu ;
     if back = get_pc cpu then
       continue := false
   done ;
@@ -88,7 +88,7 @@ let test2 () =
       SCpu.print_state cpu
     end ;
     last_line := toParse ;
-    SCpu.fetch_instr cpu
+    SCpu.next_cycle cpu
   done ;
   if not !was_error && read_mem cpu 2 = (u8 0)
      && read_mem cpu 3 = (u8 0) then
@@ -107,7 +107,7 @@ let test_rom name path =
   SCpu.PC.init (SCpu.pc cpu) (SCpu.memory cpu);
   while !continue do
     let back = get_pc cpu in
-    SCpu.fetch_instr cpu ;
+    SCpu.next_cycle cpu ;
     if back = get_pc cpu then
       continue := false
   done ;
@@ -168,7 +168,7 @@ let test6 () =
   set_reg cpu `P (u8 0x00) ;
   while !continue do
     let back = get_pc cpu in
-    SCpu.fetch_instr cpu ;
+    SCpu.next_cycle cpu ;
     if back = get_pc cpu then
       continue := false
   done ;
