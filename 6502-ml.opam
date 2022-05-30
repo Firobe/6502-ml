@@ -30,3 +30,6 @@ build: [
   ]
 ]
 dev-repo: "git+https://github.com/Firobe/6502-ml.git"
+pin-depends: [
+   ["stdint-literals.dev" "git+https://github.com/Firobe/ocaml-stdint-literals.git"]
+]
