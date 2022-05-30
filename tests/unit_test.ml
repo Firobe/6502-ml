@@ -39,9 +39,9 @@ let test1 () =
   done ;
   let time_taken = Sys.time () -. start in
   let instr_per_s = (float_of_int (SCpu.cycle_count cpu)) /. time_taken in
-  let to_mhz = instr_per_s /. 1000000. in
+  let _to_mhz = instr_per_s /. 1000000. in
   if get_pc cpu = (u16 0x3469) then
-    Format.printf "Functional tests ..... OK (freq: %.2f MHz)\n%!" to_mhz
+    Format.printf "Functional tests ..... OK\n%!" 
   else Format.printf "Functional tests ..... KO (trap at %a)%!\n"
       Uint16.printer (get_pc cpu)
 

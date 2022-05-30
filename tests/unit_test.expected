@@ -1,0 +1,19 @@
+Functional tests ..... OK
+Nestest .............. OK
+Unit immediate ....... KO (0B AAC #n;2B AAC #n;4B ASR #n;6B ARR #n;AB ATX #n;CB AXS #n;;03-immediate;;Failed)
+Unit zero page ....... OK
+Unit zp xy ........... OK
+Unit absolute ........ OK
+Unit abs xy .......... KO (9C SYA abs,X;9E SXA abs,Y;;07-abs_xy;;Failed)
+Unit ind x ........... OK
+Unit ind y ........... OK
+Unit branches ........ OK
+Unit stack ........... OK
+Unit JMP JSR ......... OK
+Unit RTS ............. OK
+Unit RTI ............. OK
+Unit BRK ............. OK
+Unit special ......... OK
+Misc abs x wrap ...... OK
+Misc branch wrap ..... OK
+Extended ops ......... KO (trap at 0423)
