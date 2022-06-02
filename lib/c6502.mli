@@ -70,6 +70,14 @@ module IRQ_collector : sig
   val create : unit -> t
 end
 
+module NMI : sig
+  type t
+  val create : unit -> t
+  val pull : t -> unit
+  val check : t -> bool
+  val clear : t -> unit
+end
+
 module type CPU = sig
   type mem
   type input
@@ -122,7 +130,7 @@ module type CPU = sig
   (** Representation of the whole CPU state, including its linked devices. Every
       function modifies this representation in place. *)
 
-  val create : ?collector:IRQ_collector.t -> input -> t
+  val create : ?collector:IRQ_collector.t -> ?nmi:NMI.t -> input -> t
   (** Return the power-up state of the whole system *)
 
   val pc : t -> PC.t

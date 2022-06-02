@@ -36,6 +36,14 @@ module IRQ_collector = struct
   let create () = Hashtbl.create 3
 end
 
+module NMI = struct
+  type t = {mutable flip_flop : bool}
+  let create () = {flip_flop = false}
+  let pull t = t.flip_flop <- true
+  let check t = t.flip_flop
+  let clear t = t.flip_flop <- false
+end
+
 module type CPU = sig
   type mem
   type input
@@ -52,7 +60,7 @@ module type CPU = sig
     val init : t -> mem -> unit
   end
   type t
-  val create : ?collector:IRQ_collector.t -> input -> t
+  val create : ?collector:IRQ_collector.t -> ?nmi:NMI.t -> input -> t
   val pc : t -> PC.t
   val registers : t -> Register.t
   val memory : t -> mem
@@ -127,15 +135,17 @@ module Make (M : MemoryMap) = struct
     reg : Register.t;
     pc : PC.t;
     irq_collector : IRQ_collector.t;
+    nmi : NMI.t;
     mutable enable_decimal : bool;
     mutable cycle_count : int
   }
 
-  let create ?(collector=IRQ_collector.create ()) rom = {
+  let create ?(collector=IRQ_collector.create ()) ?(nmi=NMI.create ()) rom = {
     mem = M.create rom;
     reg = Register.create ();
     pc = PC.create ();
     irq_collector = collector;
+    nmi;
     enable_decimal = true;
     cycle_count = 0
   }
@@ -590,9 +600,22 @@ module Make (M : MemoryMap) = struct
       let addr = Uint16.(sto + of_uint8 (R.get st.reg `Y)) in
       Location.Address addr, get_page sto <> get_page addr
 
+  let nmi st =
+    Stack.push_addr st (PC.get st.pc) ;
+    Stack.push st (R.get st.reg `P) ;
+    Flag.set st Flag.interrupt true;
+    PC.set st.pc @@ mk_addr ~lo:(M.read st.mem 0xFFFAU)
+      ~hi:(M.read st.mem 0xFFFBU)
+
   let next_cycle st =
     (* Check for interrupts *)
-    if (not @@ Flag.get st Flag.interrupt) &&
+    (* NMI *)
+    if NMI.check st.nmi then (
+      nmi st;
+      NMI.clear st.nmi
+    )
+    (* IRQ *)
+    else if (not @@ Flag.get st Flag.interrupt) &&
        IRQ_collector.is_pulled st.irq_collector then (
       Stack.push_addr st (PC.get st.pc) ;
       Stack.push st (R.get st.reg `P) ;
@@ -612,12 +635,7 @@ module Make (M : MemoryMap) = struct
     Flag.set st Flag.reserved true;
     f st arg
 
-  let nmi st =
-    Stack.push_addr st (PC.get st.pc) ;
-    Stack.push st (R.get st.reg `P) ;
-    Flag.set st Flag.interrupt true;
-    PC.set st.pc @@ mk_addr ~lo:(M.read st.mem 0xFFFAU)
-      ~hi:(M.read st.mem 0xFFFBU)
+  let nmi st = NMI.pull st.nmi
 
   let print_state st =
     let pc = PC.get st.pc in
