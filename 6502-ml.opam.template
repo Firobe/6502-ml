@@ -1,3 +1,0 @@
-pin-depends: [
-   ["stdint-literals.dev" "git+https://github.com/Firobe/ocaml-stdint-literals.git"]
-]
