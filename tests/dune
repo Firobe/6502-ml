@@ -1,4 +1,4 @@
 (test 
   (name unit_test)
   (deps (source_tree test_roms/))
-  (libraries re str 6502-ml))
+  (libraries re str 6502-ml alcotest))

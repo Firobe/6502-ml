@@ -11,6 +11,7 @@ depends: [
   "stdint"
   "stdint-literals"
   "dune" {>= "2.8" & build}
+  "alcotest" {with-test}
   "re" {with-test}
   "str" {wth-test}
   "odoc" {with-doc}

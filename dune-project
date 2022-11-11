@@ -18,5 +18,6 @@
   stdint
   stdint-literals
   (dune :build)
+  (alcotest :with-test)
   (re :with-test)
   (str :wth-test)))
