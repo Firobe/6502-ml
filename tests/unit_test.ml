@@ -133,7 +133,7 @@ let test_alco =
     "basic", [
       test_rom "Basics" "test_roms/instr_test/01-basics.nes.bin" ;
     ];
-    "addressing", [
+    "instr-by-addressing", [
       test_rom "Implied" "test_roms/instr_test/02-implied.nes.bin" ;
       test_rom "Immediate" "test_roms/instr_test/03-immediate.nes.bin" ;
       test_rom "Zero page" "test_roms/instr_test/04-zero_page.nes.bin" ;

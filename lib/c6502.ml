@@ -274,7 +274,6 @@ module Make (M : MemoryMap) = struct
     let _STA st m = (st,m) <<- R.get st.reg `A
     let _STX st m = (st,m) <<- R.get st.reg `X
     let _STY st m = (st,m) <<- R.get st.reg `Y
-    let _SAX st m = (st,m) <<- logand (R.get st.reg `A) (R.get st.reg `X)
 
     (* Register transfers *)
     let gen_T st f t =
@@ -450,6 +449,54 @@ module Make (M : MemoryMap) = struct
     let _NOP _ _ = ()
     let _UNO = _NOP
 
+
+    (* ILLEGAL INSTRUCTIONS *)
+
+    let _SAX st m = (st,m) <<- logand (R.get st.reg `A) (R.get st.reg `X)
+
+    (** aka ATX *)
+    let _LXA st m =
+      let v = !!(st,m) in
+      let a = R.get st.reg `A in
+      let a = logand a v in
+      R.set st.reg `A a;
+      R.set st.reg `X a;
+      Flag.update_nz st a
+
+    (** aka AXS *)
+    let _SBX st m =
+      let v = !!(st,m) in
+      let a = R.get st.reg `A in
+      let x = R.get st.reg `X in
+      let x = logand a x in
+      let c = x >= v in
+      Flag.set st Flag.carry c;
+      let x = x - v in
+      R.set st.reg `X x;
+      Flag.update_nz st x
+
+    (** aka AAC *)
+    let _ANC st m =
+      let v = logand !!(st,m) (R.get st.reg `A) in
+      R.set st.reg `A v;
+      Flag.update_neg st v;
+      Flag.set st Flag.carry (Flag.get st Flag.negative)
+
+    (* placeholders *)
+    let _SLO = _NOP
+    let _RLA = _NOP
+    let _SRE = _NOP
+    let _ASR = _NOP
+    let _RRA = _NOP
+    let _ARR = _NOP
+    let _ANE = _NOP
+    let _SHA = _NOP
+    let _SHS = _NOP
+    let _LAX = _NOP
+    let _LAS = _NOP
+    let _DCP = _NOP
+    let _ISB = _NOP
+
     module Decoding = struct
       let triple (opcode : uint8) =
         let open Uint8 in
@@ -480,36 +527,46 @@ module Make (M : MemoryMap) = struct
         | Zero_Page_X | Absolute -> 6 | _ -> 7
       let c8 _ = function Absolute -> 3 | _ -> 5
       let cycFuns = [|c0; c1; c2; c3; c4; c5; c6; c7; c8; c9|]
-      let t0 = [| [|_BRK,7; _UNO,0; _PHP,3; _UNO,0; _BPL,9; _UNO,0; _CLC,2; _UNO,0|];
-                  [|_JSR,5; _BIT,0; _PLP,4; _BIT,0; _BMI,9; _UNO,0; _SEC,2; _UNO,0|];
-                  [|_RTI,5; _UNO,0; _PHA,3; _JMP,8; _BVC,9; _UNO,0; _CLI,2; _UNO,0|];
-                  [|_RTS,5; _UNO,0; _PLA,4; _JMP,8; _BVS,9; _UNO,0; _SEI,2; _UNO,0|];
-                  [|_UNO,0; _STY,1; _DEY,2; _STY,1; _BCC,9; _STY,1; _TYA,2; _UNO,0|];
-                  [|_LDY,0; _LDY,0; _TAY,2; _LDY,0; _BCS,9; _LDY,0; _CLV,2; _LDY,0|];
-                  [|_CPY,0; _CPY,0; _INY,2; _CPY,0; _BNE,9; _UNO,0; _CLD,2; _UNO,0|];
-                  [|_CPX,0; _CPX,0; _INX,2; _CPX,0; _BEQ,9; _UNO,0; _SED,2; _UNO,0|] |]
+      let t0 = [|
+        [|_BRK,7; _UNO,0; _PHP,3; _UNO,0; _BPL,9; _UNO,0; _CLC,2; _UNO,0|];
+        [|_JSR,5; _BIT,0; _PLP,4; _BIT,0; _BMI,9; _UNO,0; _SEC,2; _UNO,0|];
+        [|_RTI,5; _UNO,0; _PHA,3; _JMP,8; _BVC,9; _UNO,0; _CLI,2; _UNO,0|];
+        [|_RTS,5; _UNO,0; _PLA,4; _JMP,8; _BVS,9; _UNO,0; _SEI,2; _UNO,0|];
+        [|_UNO,0; _STY,1; _DEY,2; _STY,1; _BCC,9; _STY,1; _TYA,2; _UNO,0|];
+        [|_LDY,0; _LDY,0; _TAY,2; _LDY,0; _BCS,9; _LDY,0; _CLV,2; _LDY,0|];
+        [|_CPY,0; _CPY,0; _INY,2; _CPY,0; _BNE,9; _UNO,0; _CLD,2; _UNO,0|];
+        [|_CPX,0; _CPX,0; _INX,2; _CPX,0; _BEQ,9; _UNO,0; _SED,2; _UNO,0|]
+      |]
       let t1 = [|_ORA,0; _AND,0; _EOR,0; _ADC,0; _STA,1; _LDA,0; _CMP,0; _SBC,0|]
-      let t2 = [| [|_NOP,2; _ASL,7; _ASL,7; _ASL,7; _NOP,2; _ASL,7; _NOP,2; _ASL,7|];
-                  [|_NOP,2; _ROL,7; _ROL,7; _ROL,7; _NOP,2; _ROL,7; _NOP,2; _ROL,7|];
-                  [|_NOP,2; _LSR,7; _LSR,7; _LSR,7; _NOP,2; _LSR,7; _NOP,2; _LSR,7|];
-                  [|_NOP,2; _ROR,7; _ROR,7; _ROR,7; _NOP,2; _ROR,7; _NOP,2; _ROR,7|];
-                  [|_NOP,2; _STX,1; _TXA,2; _STX,1; _NOP,2; _STX,1; _TXS,2; _UNO,0|];
-                  [|_LDX,0; _LDX,0; _TAX,2; _LDX,0; _LDX,0; _LDX,0; _TSX,2; _LDX,0|];
-                  [|_NOP,2; _DEC,7; _DEX,2; _DEC,7; _DEC,7; _DEC,7; _NOP,2; _DEC,7|];
-                  [|_NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7|] |]
-      let rec get_fun a b c = (* 1 3 0 *)
+      let t2 = [|
+        [|_NOP,2; _ASL,7; _ASL,7; _ASL,7; _NOP,2; _ASL,7; _NOP,2; _ASL,7|];
+        [|_NOP,2; _ROL,7; _ROL,7; _ROL,7; _NOP,2; _ROL,7; _NOP,2; _ROL,7|];
+        [|_NOP,2; _LSR,7; _LSR,7; _LSR,7; _NOP,2; _LSR,7; _NOP,2; _LSR,7|];
+        [|_NOP,2; _ROR,7; _ROR,7; _ROR,7; _NOP,2; _ROR,7; _NOP,2; _ROR,7|];
+        [|_NOP,2; _STX,1; _TXA,2; _STX,1; _NOP,2; _STX,1; _TXS,2; _UNO,0|];
+        [|_LDX,0; _LDX,0; _TAX,2; _LDX,0; _LDX,0; _LDX,0; _TSX,2; _LDX,0|];
+        [|_NOP,2; _DEC,7; _DEX,2; _DEC,7; _DEC,7; _DEC,7; _NOP,2; _DEC,7|];
+        [|_NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7|]
+      |]
+      let t3 = [|
+        [|_SLO,0; _SLO,0; _ANC,2; _SLO,0; _SLO,0; _SLO,0; _SLO,0; _SLO,0|];
+        [|_RLA,0; _RLA,0; _ANC,2; _RLA,0; _RLA,0; _RLA,0; _RLA,0; _RLA,0|];
+        [|_SRE,0; _SRE,0; _ASR,0; _SRE,0; _SRE,0; _SRE,0; _SRE,0; _SRE,0|];
+        [|_RRA,0; _RRA,0; _ARR,0; _RRA,0; _RRA,0; _RRA,0; _RRA,0; _RRA,0|];
+        [|_SAX,1; _SAX,1; _ANE,0; _SAX,1; _SHA,0; _SAX,1; _SHS,0; _SHA,0|];
+        [|_LAX,0; _LAX,0; _LXA,2; _LAX,0; _LAX,0; _LAX,0; _LAS,0; _LAX,0|];
+        [|_DCP,0; _DCP,0; _SBX,2; _DCP,0; _DCP,0; _DCP,0; _DCP,0; _DCP,0|];
+        [|_ISB,0; _ISB,0; _SBC,0; _ISB,0; _ISB,0; _ISB,0; _ISB,0; _ISB,0|];
+      |]
+      let get_fun a b c = (* 1 3 0 *)
         match c with (* 6 3 1*)
         | 0 -> t0.(a).(b)
         | 1 when a = 4 -> if b = 2 then (_NOP,2) else (_STA,1)
         | 1 -> t1.(a)
         | 2 -> t2.(a).(b)
         (* Unofficial *)
-        | 3 when a = 4 && (b = 0 || b = 1 || b = 3 || b = 5)  -> (_SAX,1)
-        | 3 when a <> 5 && b <> 2 && b <> 1 -> (fst (get_fun a 1 c), -1)
-        | _ ->
-          let f1, _ = (get_fun a b (c-1)) in
-          let f2, _ = (get_fun a b (c-2)) in
-          (fun st m -> f1 st m; f2 st m), -1
+        | 3 -> t3.(a).(b)
+        | _ -> assert false
 
       let unofCycles a b c pc am =
         if c = 3 && a >= 6 || a <= 3 then match am with
