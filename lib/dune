@@ -1,8 +1,9 @@
 (library
-	(name c6502)
-	(public_name 6502-ml)
-    (libraries stdint)
-    (preprocess (pps stdint-literals))
-)
+ (name c6502)
+ (public_name 6502-ml)
+ (libraries stdint)
+ (preprocess
+  (pps stdint-literals)))
 
-(documentation (mld_files :standard))
+(documentation
+ (mld_files :standard))
