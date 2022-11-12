@@ -448,11 +448,14 @@ module Make (M : MemoryMap) = struct
       PC.set st.pc @@ Stack.pull_addr st
 
     let _NOP _ _ = ()
-    let _UNO = _NOP
+    let _NYI name _ _ = Printf.printf "%s not yet implemented" name
 
     (* Unofficial instructions *)
     let compose f1 f2 =
       fun a b -> f1 a b; f2 a b
+
+    (* instruction crashes the CPU *)
+    let _JAM _ _ = failwith "Executed JAM instruction"
 
     let _SLO = compose _ASL _ORA
     let _RLA = compose _ROL _AND
@@ -463,15 +466,75 @@ module Make (M : MemoryMap) = struct
     let _DCP = compose _DEC _CMP
     let _ISB = compose _INC _SBC
 
-    (* placeholders *)
-    let _ASR = _NOP
-    let _ARR = _NOP
-    let _ANE = _NOP
-    let _SHA = _NOP
-    let _SHS = _NOP
-    let _ANC = _NOP
-    let _LXA = _NOP
-    let _SBX = _NOP
+    (* aka SAY or SYA, unstable *)
+    let _SHY st m =
+      let addr = Location.ref m in
+      let addr = (get_hi addr) + 1u in
+      let result = logand addr (R.get st.reg `Y) in
+      (st,m) <<- result
+
+    (* aka XAS or SXA, unstable *)
+    let _SHX st m =
+      let addr = Location.ref m in
+      let addr = (get_hi addr) + 1u in
+      let result = logand addr (R.get st.reg `X) in
+      (st,m) <<- result
+
+    let _ANC st m =
+      _AND st m;
+      Flag.set st Flag.carry (Flag.get st Flag.negative)
+
+    (* aka ALR *)
+    let _ASR st m =
+      _AND st m;
+      _LSR st (Register `A)
+
+    (* aka AXS, SAX, ASX *)
+    let _SBX st m =
+      let v = !!(st,m) in
+      let x = logand (R.get st.reg `X) (R.get st.reg `A) in
+      Flag.(set st carry (x >= v));
+      let x = x - v in
+      R.set st.reg `X x;
+      Flag.update_nz st x
+
+    (* wrong? *)
+    let _ARR st m =
+      let result = logand !!(st,m) (R.get st.reg `A) in
+      let result = shift_right_logical result 1 in
+      let result = 
+        if Flag.get st Flag.carry then
+          logor result 0b10000000u
+        else result
+      in
+      Flag.(set st negative (get st carry));
+      Flag.update_neg st result;
+      if Flag.(get st decimal) then
+        (* TODO special operations in decimal mode *)
+        ()
+      else (
+        Flag.(set st carry (get_bit result 6));
+        let v = logor
+            (shift_right_logical result 6)
+            (shift_right_logical result 5)
+        in
+        Flag.(set st Flag.overflow (get_bit v 0))
+      );
+      R.set st.reg `A result
+
+    (* unstable *)
+    let _LXA st m =
+      _AND st m;
+      R.set st.reg `X (R.get st.reg `A)
+
+    (* aka ATX, XAA, unstable, not implemented *)
+    let _ANE = _NYI "ANE"
+
+    (* aka SAH, AXA, unstable, not implemented *)
+    let _SHA = _NYI "SHA"
+
+    (* aka SSH, TAS, XAS, unstable, not implemented *)
+    let _SHS = _NYI "SHS"
 
     module Decoding = struct
       (* Return (a, b, c) from the opcode aaabbbcc *)
@@ -564,7 +627,7 @@ module Make (M : MemoryMap) = struct
           [|_JSR,5; _BIT,0; _PLP,4; _BIT,0; _BMI,9; _NOP,0; _SEC,2; _NOP,0|];
           [|_RTI,5; _NOP,0; _PHA,3; _JMP,8; _BVC,9; _NOP,0; _CLI,2; _NOP,0|];
           [|_RTS,5; _NOP,0; _PLA,4; _JMP,8; _BVS,9; _NOP,0; _SEI,2; _NOP,0|];
-          [|_NOP,0; _STY,1; _DEY,2; _STY,1; _BCC,9; _STY,1; _TYA,2; _NOP,0|];
+          [|_NOP,0; _STY,1; _DEY,2; _STY,1; _BCC,9; _STY,1; _TYA,2; _SHY,0|];
           [|_LDY,0; _LDY,0; _TAY,2; _LDY,0; _BCS,9; _LDY,0; _CLV,2; _LDY,0|];
           [|_CPY,0; _CPY,0; _INY,2; _CPY,0; _BNE,9; _NOP,0; _CLD,2; _NOP,0|];
           [|_CPX,0; _CPX,0; _INX,2; _CPX,0; _BEQ,9; _NOP,0; _SED,2; _NOP,0|]
@@ -580,14 +643,14 @@ module Make (M : MemoryMap) = struct
           [|_SBC,0; _SBC,0; _SBC,0; _SBC,0; _SBC,0; _SBC,0; _SBC,0; _SBC,0|];
         |];
         [|
-          [|_NOP,2; _ASL,7; _ASL,7; _ASL,7; _NOP,2; _ASL,7; _NOP,2; _ASL,7|];
-          [|_NOP,2; _ROL,7; _ROL,7; _ROL,7; _NOP,2; _ROL,7; _NOP,2; _ROL,7|];
-          [|_NOP,2; _LSR,7; _LSR,7; _LSR,7; _NOP,2; _LSR,7; _NOP,2; _LSR,7|];
-          [|_NOP,2; _ROR,7; _ROR,7; _ROR,7; _NOP,2; _ROR,7; _NOP,2; _ROR,7|];
-          [|_NOP,2; _STX,1; _TXA,2; _STX,1; _NOP,2; _STX,1; _TXS,2; _UNO,0|];
-          [|_LDX,0; _LDX,0; _TAX,2; _LDX,0; _LDX,0; _LDX,0; _TSX,2; _LDX,0|];
-          [|_NOP,2; _DEC,7; _DEX,2; _DEC,7; _DEC,7; _DEC,7; _NOP,2; _DEC,7|];
-          [|_NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7|]
+          [|_JAM,2; _ASL,7; _ASL,7; _ASL,7; _JAM,2; _ASL,7; _NOP,2; _ASL,7|];
+          [|_JAM,2; _ROL,7; _ROL,7; _ROL,7; _JAM,2; _ROL,7; _NOP,2; _ROL,7|];
+          [|_JAM,2; _LSR,7; _LSR,7; _LSR,7; _JAM,2; _LSR,7; _NOP,2; _LSR,7|];
+          [|_JAM,2; _ROR,7; _ROR,7; _ROR,7; _JAM,2; _ROR,7; _NOP,2; _ROR,7|];
+          [|_NOP,2; _STX,1; _TXA,2; _STX,1; _JAM,2; _STX,1; _TXS,2; _SHX,0|];
+          [|_LDX,0; _LDX,0; _TAX,2; _LDX,0; _JAM,0; _LDX,0; _TSX,2; _LDX,0|];
+          [|_NOP,2; _DEC,7; _DEX,2; _DEC,7; _JAM,7; _DEC,7; _NOP,2; _DEC,7|];
+          [|_NOP,2; _INC,7; _NOP,2; _INC,7; _JAM,2; _INC,7; _NOP,2; _INC,7|]
         |];
         [|
           [|_SLO,-1; _SLO,-1; _ANC,02; _SLO,-1; _SLO,-1; _SLO,-1; _SLO,-1; _SLO,-1|];

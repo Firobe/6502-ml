@@ -135,8 +135,8 @@ let () =
     ];
     "addressing", [
       test_rom "Implied" "test_roms/instr_test/02-implied.nes.bin" ;
-      test_rom ~expected:"0B AAC #n;2B AAC #n;4B ASR #n;6B ARR #n;AB ATX #n;CB AXS #n;;03-immediate;;Failed"
-        "Immediate" "test_roms/instr_test/03-immediate.nes.bin" ;
+      test_rom "Immediate" ~expected:"6B ARR #n;AB ATX #n;;03-immediate;;Failed"
+        "test_roms/instr_test/03-immediate.nes.bin" ;
       test_rom "Zero page" "test_roms/instr_test/04-zero_page.nes.bin" ;
       test_rom "Zero page XY" "test_roms/instr_test/05-zp_xy.nes.bin" ;
       test_rom "Absolute" "test_roms/instr_test/06-absolute.nes.bin" ;
