@@ -65,6 +65,7 @@ end
 module IRQ_collector : sig
   type key = string
   type t
+
   val is_pulled : t -> bool
   val set_pulled : t -> key -> bool -> unit
   val create : unit -> t
@@ -72,6 +73,7 @@ end
 
 module NMI : sig
   type t
+
   val create : unit -> t
   val pull : t -> unit
   val check : t -> bool
@@ -80,6 +82,7 @@ end
 
 module type CPU = sig
   type mem
+
   type input
   (** The memory map of the CPU. You can use {!M.read} and {!M.write} to access
       the CPU memory space. *)
@@ -88,12 +91,12 @@ module type CPU = sig
 
   (** Access and modify the content of the 8-bit registers of the CPU. *)
   module Register : sig
-    type register = [ `S (** Stack pointer *)
-                    | `A (** Accumulator *)
-                    | `X (** X index *)
-                    | `Y (** Y index *)
-                    | `P (** Processor status *)
-                    ]
+    type register =
+      [ `S  (** Stack pointer *)
+      | `A  (** Accumulator *)
+      | `X  (** X index *)
+      | `Y  (** Y index *)
+      | `P  (** Processor status *) ]
     (** The different 8-bit registers, represented by polymorphic variants.
         Every register defaults to zero at startup, except the processor status
         which defaults to [0x24]. *)
@@ -165,9 +168,14 @@ module type CPU = sig
       [0xFFF[A-B]]). *)
 
   val print_state : t -> unit
-    (** Print the content of the registers, PC, the cycle count and the current
+  (** Print the content of the registers, PC, the cycle count and the current
         byte pointed by PC. *)
 end
+
+module Utils = Utils
+(** Some helper functions to make life easier with fixed-size integers.
+
+    Mostly aliases for some {!module:Stdint} functions. *)
 
 (** A full CPU as obtained with {!module:MakeCPU}.
 
@@ -180,41 +188,7 @@ end
     The two important functions relevant to simulation are {!fetch_instr} and
     {!interrupt}. *)
 module Make : functor (M : MemoryMap) ->
-  (CPU with type mem = M.t and type input = M.input)
-(** Some helper functions to make life easier with fixed-size integers.
-
-    Mostly aliases for some {!module:Stdint} functions. *)
-module Int_utils : sig
-  val u8 : int -> uint8
-  (** {!type:uint8} from OCaml {!type:int} *)
-
-  val u16 : int -> uint16
-  (** {!type:uint16} from OCaml {!type:int} *)
-
-  val u8of16 : uint16 -> uint8
-  (** Cast a 16-bit integer to 8-bit one *)
-
-  val u16of8 : uint8 -> uint16
-  (** Cast a 8-bit integer to 16-bit one *)
-
-  val pp_u8 : Format.formatter -> uint8 -> unit
-  (** Print an {!type:uint8} as 0xYY *)
-
-  val pp_u16 : Format.formatter -> uint16 -> unit
-  (** Print an {!type:uint16} as 0xYYYY *)
-
-  val mk_addr : hi:uint8 -> lo:uint8 -> uint16
-  (** Make an {!type:uint16} from a [lo] and [hi] byte. *)
-
-  val get_hi : uint16 -> uint8
-  (** Get the high byte of an {!type:uint16}. *)
-
-  val get_lo : uint16 -> uint8
-  (** Get the low byte of an {!type:uint16}. *)
-
-  val get_bit : uint8 -> int -> bool
-  (** [get_bit v n] returns if the [n]th bit of [v] is [1] *)
-end
+  CPU with type mem = M.t and type input = M.input
 
 (** {1:example Basic example} *)
 

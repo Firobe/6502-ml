@@ -1,5 +1,5 @@
 open Stdint
-open C6502.Int_utils
+open C6502.Utils
 
 module SCpu = C6502.Make (struct
   type t = uint8 array
