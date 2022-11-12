@@ -450,107 +450,200 @@ module Make (M : MemoryMap) = struct
     let _NOP _ _ = ()
     let _UNO = _NOP
 
+    (* Unofficial instructions *)
+    let compose f1 f2 =
+      fun a b -> f1 a b; f2 a b
+
+    let _SLO = compose _ASL _ORA
+    let _RLA = compose _ROL _AND
+    let _SRE = compose _LSR _EOR
+    let _RRA = compose _ROR _ADC
+    let _LAX = compose _LDX _LDA
+    let _LAS = compose _TSX _LDA
+    let _DCP = compose _DEC _CMP
+    let _ISB = compose _INC _SBC
+
+    (* placeholders *)
+    let _ASR = _NOP
+    let _ARR = _NOP
+    let _ANE = _NOP
+    let _SHA = _NOP
+    let _SHS = _NOP
+    let _ANC = _NOP
+    let _LXA = _NOP
+    let _SBX = _NOP
+
     module Decoding = struct
+      (* Return (a, b, c) from the opcode aaabbbcc *)
       let triple (opcode : uint8) =
         let open Uint8 in
         let ib = shift_right_logical opcode 2 in
         let ia = shift_right_logical opcode 5 in
-        (logand ia 7u, logand ib 7u, logand opcode 3u)
-
-      let invalid_instruction st =
-        let addr = PC.get st.pc in
-        let opcode = M.read st.mem addr in
-        raise (Invalid_instruction (addr, opcode))
+        (to_int @@ logand ia 7u,
+         to_int @@ logand ib 7u,
+         to_int @@ logand opcode 3u)
 
       open Stdlib
+      (* Addressed by b, c, a *)
+      let am_table =
+        let impl = Implicit in
+        let zpg_ = Zero_Page in
+        let abs_ = Absolute in
+        let rel_ = Relative in
+        let zpgx = Zero_Page_X in
+        let zpgy = Zero_Page_Y in
+        let absx = Absolute_X in
+        let absy = Absolute_Y in
+        let imm_ = Immediate in
+        let xind = Indexed_Indirect in
+        let ind_ = Indirect in
+        let indy = Indirect_Indexed in
+        let jam_ = Implicit in
+        let acc_ = Accumulator in
+        [|
+          [|
+            [|impl; abs_; impl; impl; imm_; imm_; imm_; imm_|];
+            [|xind; xind; xind; xind; xind; xind; xind; xind|];
+            [|jam_; jam_; jam_; jam_; imm_; imm_; imm_; imm_|];
+            [|xind; xind; xind; xind; xind; xind; xind; xind|]
+          |];
+          [|
+            [|zpg_; zpg_; zpg_; zpg_; zpg_; zpg_; zpg_; zpg_|];
+            [|zpg_; zpg_; zpg_; zpg_; zpg_; zpg_; zpg_; zpg_|];
+            [|zpg_; zpg_; zpg_; zpg_; zpg_; zpg_; zpg_; zpg_|];
+            [|zpg_; zpg_; zpg_; zpg_; zpg_; zpg_; zpg_; zpg_|]
+          |];
+          [|
+            [|impl; impl; impl; impl; impl; impl; impl; impl|];
+            [|imm_; imm_; imm_; imm_; imm_; imm_; imm_; imm_|];
+            [|acc_; acc_; acc_; acc_; impl; impl; impl; impl|];
+            [|imm_; imm_; imm_; imm_; imm_; imm_; imm_; imm_|]
+          |];
+          [|
+            [|abs_; abs_; abs_; ind_; abs_; abs_; abs_; abs_|];
+            [|abs_; abs_; abs_; abs_; abs_; abs_; abs_; abs_|];
+            [|abs_; abs_; abs_; abs_; abs_; abs_; abs_; abs_|];
+            [|abs_; abs_; abs_; abs_; abs_; abs_; abs_; abs_|]
+          |];
+          [|
+            [|rel_; rel_; rel_; rel_; rel_; rel_; rel_; rel_|];
+            [|indy; indy; indy; indy; indy; indy; indy; indy|];
+            [|jam_; jam_; jam_; jam_; jam_; jam_; jam_; jam_|];
+            [|indy; indy; indy; indy; indy; indy; indy; indy|]
+          |];
+          [|
+            [|zpgx; zpgx; zpgx; zpgx; zpgx; zpgx; zpgx; zpgx|];
+            [|zpgx; zpgx; zpgx; zpgx; zpgx; zpgx; zpgx; zpgx|];
+            [|zpgx; zpgx; zpgx; zpgx; zpgy; zpgy; zpgx; zpgx|];
+            [|zpgx; zpgx; zpgx; zpgx; zpgy; zpgy; zpgx; zpgx|]
+          |];
+          [|
+            [|impl; impl; impl; impl; impl; impl; impl; impl|];
+            [|absy; absy; absy; absy; absy; absy; absy; absy|];
+            [|impl; impl; impl; impl; impl; impl; impl; impl|];
+            [|absy; absy; absy; absy; absy; absy; absy; absy|]
+          |];
+          [|
+            [|absx; absx; absx; absx; absx; absx; absx; absx|];
+            [|absx; absx; absx; absx; absx; absx; absx; absx|];
+            [|absx; absx; absx; absx; absy; absy; absx; absx|];
+            [|absx; absx; absx; absx; absy; absy; absx; absx|]
+          |]
+        |]
 
-      let c0 pc = function
-        | Immediate -> 2 | Zero_Page -> 3
-        | Zero_Page_X | Zero_Page_Y | Absolute -> 4
-        | Absolute_X | Absolute_Y -> if pc then 5 else 4
-        | Indirect_Indexed -> if pc then 6 else 5
-        | _ -> 6
-      let c1 _ = function
-        | Absolute_X | Absolute_Y -> 5 | Indirect_Indexed -> 6
-        | o -> c0 false o
-      let c2 _ _ = 2 let c3 _ _ = 3 let c4 _ _ = 4
-      let c5 _ _ = 6 let c6 _ _ = 7 let c9 _ _ = 2
-      let c7 _ = function
-        | Accumulator -> 2 | Zero_Page -> 5
-        | Zero_Page_X | Absolute -> 6 | _ -> 7
-      let c8 _ = function Absolute -> 3 | _ -> 5
-      let cycFuns = [|c0; c1; c2; c3; c4; c5; c6; c7; c8; c9|]
-      let t0 = [| [|_BRK,7; _UNO,0; _PHP,3; _UNO,0; _BPL,9; _UNO,0; _CLC,2; _UNO,0|];
-                  [|_JSR,5; _BIT,0; _PLP,4; _BIT,0; _BMI,9; _UNO,0; _SEC,2; _UNO,0|];
-                  [|_RTI,5; _UNO,0; _PHA,3; _JMP,8; _BVC,9; _UNO,0; _CLI,2; _UNO,0|];
-                  [|_RTS,5; _UNO,0; _PLA,4; _JMP,8; _BVS,9; _UNO,0; _SEI,2; _UNO,0|];
-                  [|_UNO,0; _STY,1; _DEY,2; _STY,1; _BCC,9; _STY,1; _TYA,2; _UNO,0|];
-                  [|_LDY,0; _LDY,0; _TAY,2; _LDY,0; _BCS,9; _LDY,0; _CLV,2; _LDY,0|];
-                  [|_CPY,0; _CPY,0; _INY,2; _CPY,0; _BNE,9; _UNO,0; _CLD,2; _UNO,0|];
-                  [|_CPX,0; _CPX,0; _INX,2; _CPX,0; _BEQ,9; _UNO,0; _SED,2; _UNO,0|] |]
-      let t1 = [|_ORA,0; _AND,0; _EOR,0; _ADC,0; _STA,1; _LDA,0; _CMP,0; _SBC,0|]
-      let t2 = [| [|_NOP,2; _ASL,7; _ASL,7; _ASL,7; _NOP,2; _ASL,7; _NOP,2; _ASL,7|];
-                  [|_NOP,2; _ROL,7; _ROL,7; _ROL,7; _NOP,2; _ROL,7; _NOP,2; _ROL,7|];
-                  [|_NOP,2; _LSR,7; _LSR,7; _LSR,7; _NOP,2; _LSR,7; _NOP,2; _LSR,7|];
-                  [|_NOP,2; _ROR,7; _ROR,7; _ROR,7; _NOP,2; _ROR,7; _NOP,2; _ROR,7|];
-                  [|_NOP,2; _STX,1; _TXA,2; _STX,1; _NOP,2; _STX,1; _TXS,2; _UNO,0|];
-                  [|_LDX,0; _LDX,0; _TAX,2; _LDX,0; _LDX,0; _LDX,0; _TSX,2; _LDX,0|];
-                  [|_NOP,2; _DEC,7; _DEX,2; _DEC,7; _DEC,7; _DEC,7; _NOP,2; _DEC,7|];
-                  [|_NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7|] |]
-      let rec get_fun a b c = (* 1 3 0 *)
-        match c with (* 6 3 1*)
-        | 0 -> t0.(a).(b)
-        | 1 when a = 4 -> if b = 2 then (_NOP,2) else (_STA,1)
-        | 1 -> t1.(a)
-        | 2 -> t2.(a).(b)
-        (* Unofficial *)
-        | 3 when a = 4 && (b = 0 || b = 1 || b = 3 || b = 5)  -> (_SAX,1)
-        | 3 when a <> 5 && b <> 2 && b <> 1 -> (fst (get_fun a 1 c), -1)
-        | _ ->
-          let f1, _ = (get_fun a b (c-1)) in
-          let f2, _ = (get_fun a b (c-2)) in
-          (fun st m -> f1 st m; f2 st m), -1
+      (* Addressing and instruction dispatch *)
+      let get_am (a, b, c) =
+        am_table.(b).(c).(a)
 
-      let unofCycles a b c pc am =
+      (* Organized like so:
+       * https://www.masswerk.at/6502/6502_instruction_set.html#layout *)
+      (* Addressed by c, a, b *)
+      let instr_table = [|
+        [|
+          [|_BRK,7; _NOP,0; _PHP,3; _NOP,0; _BPL,9; _NOP,0; _CLC,2; _NOP,0|];
+          [|_JSR,5; _BIT,0; _PLP,4; _BIT,0; _BMI,9; _NOP,0; _SEC,2; _NOP,0|];
+          [|_RTI,5; _NOP,0; _PHA,3; _JMP,8; _BVC,9; _NOP,0; _CLI,2; _NOP,0|];
+          [|_RTS,5; _NOP,0; _PLA,4; _JMP,8; _BVS,9; _NOP,0; _SEI,2; _NOP,0|];
+          [|_NOP,0; _STY,1; _DEY,2; _STY,1; _BCC,9; _STY,1; _TYA,2; _NOP,0|];
+          [|_LDY,0; _LDY,0; _TAY,2; _LDY,0; _BCS,9; _LDY,0; _CLV,2; _LDY,0|];
+          [|_CPY,0; _CPY,0; _INY,2; _CPY,0; _BNE,9; _NOP,0; _CLD,2; _NOP,0|];
+          [|_CPX,0; _CPX,0; _INX,2; _CPX,0; _BEQ,9; _NOP,0; _SED,2; _NOP,0|]
+        |];
+        [|
+          [|_ORA,0; _ORA,0; _ORA,0; _ORA,0; _ORA,0; _ORA,0; _ORA,0; _ORA,0|];
+          [|_AND,0; _AND,0; _AND,0; _AND,0; _AND,0; _AND,0; _AND,0; _AND,0|];
+          [|_EOR,0; _EOR,0; _EOR,0; _EOR,0; _EOR,0; _EOR,0; _EOR,0; _EOR,0|];
+          [|_ADC,0; _ADC,0; _ADC,0; _ADC,0; _ADC,0; _ADC,0; _ADC,0; _ADC,0|];
+          [|_STA,1; _STA,1; _NOP,2; _STA,1; _STA,1; _STA,1; _STA,1; _STA,1|];
+          [|_LDA,0; _LDA,0; _LDA,0; _LDA,0; _LDA,0; _LDA,0; _LDA,0; _LDA,0|];
+          [|_CMP,0; _CMP,0; _CMP,0; _CMP,0; _CMP,0; _CMP,0; _CMP,0; _CMP,0|];
+          [|_SBC,0; _SBC,0; _SBC,0; _SBC,0; _SBC,0; _SBC,0; _SBC,0; _SBC,0|];
+        |];
+        [|
+          [|_NOP,2; _ASL,7; _ASL,7; _ASL,7; _NOP,2; _ASL,7; _NOP,2; _ASL,7|];
+          [|_NOP,2; _ROL,7; _ROL,7; _ROL,7; _NOP,2; _ROL,7; _NOP,2; _ROL,7|];
+          [|_NOP,2; _LSR,7; _LSR,7; _LSR,7; _NOP,2; _LSR,7; _NOP,2; _LSR,7|];
+          [|_NOP,2; _ROR,7; _ROR,7; _ROR,7; _NOP,2; _ROR,7; _NOP,2; _ROR,7|];
+          [|_NOP,2; _STX,1; _TXA,2; _STX,1; _NOP,2; _STX,1; _TXS,2; _UNO,0|];
+          [|_LDX,0; _LDX,0; _TAX,2; _LDX,0; _LDX,0; _LDX,0; _TSX,2; _LDX,0|];
+          [|_NOP,2; _DEC,7; _DEX,2; _DEC,7; _DEC,7; _DEC,7; _NOP,2; _DEC,7|];
+          [|_NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7; _NOP,2; _INC,7|]
+        |];
+        [|
+          [|_SLO,-1; _SLO,-1; _ANC,02; _SLO,-1; _SLO,-1; _SLO,-1; _SLO,-1; _SLO,-1|];
+          [|_RLA,-1; _RLA,-1; _ANC,02; _RLA,-1; _RLA,-1; _RLA,-1; _RLA,-1; _RLA,-1|];
+          [|_SRE,-1; _SRE,-1; _ASR,00; _SRE,-1; _SRE,-1; _SRE,-1; _SRE,-1; _SRE,-1|];
+          [|_RRA,-1; _RRA,-1; _ARR,00; _RRA,-1; _RRA,-1; _RRA,-1; _RRA,-1; _RRA,-1|];
+          [|_SAX,01; _SAX,01; _ANE,00; _SAX,01; _SHA,00; _SAX,01; _SHS,00; _SHA,00|];
+          [|_LAX,-1; _LAX,-1; _LXA,02; _LAX,-1; _LAX,-1; _LAX,-1; _LAS,-1; _LAX,-1|];
+          [|_DCP,-1; _DCP,-1; _SBX,02; _DCP,-1; _DCP,-1; _DCP,-1; _DCP,-1; _DCP,-1|];
+          [|_ISB,-1; _ISB,-1; _SBC,00; _ISB,-1; _ISB,-1; _ISB,-1; _ISB,-1; _ISB,-1|];
+        |]
+      |]
+
+      (* Get instruction and cycle offset from opcode *)
+      let get_fun (a, b, c) =
+        instr_table.(c).(a).(b)
+
+      (* Precompute number of cycles taken, official *)
+      let cycle_functions = 
+        let c0 pc = function
+          | Immediate -> 2 | Zero_Page -> 3
+          | Zero_Page_X | Zero_Page_Y | Absolute -> 4
+          | Absolute_X | Absolute_Y -> if pc then 5 else 4
+          | Indirect_Indexed -> if pc then 6 else 5
+          | _ -> 6 in
+        let c1 _ = function
+          | Absolute_X | Absolute_Y -> 5 | Indirect_Indexed -> 6
+          | o -> c0 false o in
+        let c2 _ _ = 2 in
+        let c3 _ _ = 3 in
+        let c4 _ _ = 4 in
+        let c5 _ _ = 6 in
+        let c6 _ _ = 7 in
+        let c7 _ = function
+          | Accumulator -> 2 | Zero_Page -> 5
+          | Zero_Page_X | Absolute -> 6 | _ -> 7 in
+        let c8 _ = function Absolute -> 3 | _ -> 5 in
+        let c9 _ _ = 2 in
+        [|c0; c1; c2; c3; c4; c5; c6; c7; c8; c9|]
+
+      (* Simulate cycles from unofficial opcodes *)
+      let unofCycles (a, b, c) pc am =
         if c = 3 && a >= 6 || a <= 3 then match am with
           | Immediate -> 2 | Zero_Page -> 5 | Zero_Page_X | Absolute -> 6
           | Absolute_X | Absolute_Y -> 7 | _ -> 8
         else
-          let _, cfi = get_fun 5 b (if c >= 2 then c - 2 else 0) in
-          cycFuns.(cfi) pc am
+          let _, cfi = get_fun (5, b, (if c >= 2 then c - 2 else 0)) in
+          cycle_functions.(cfi) pc am
 
-      (* Addressing and instruction dispatch *)
-      let rec get_am st a b c = match b, c, a with
-        | (5|7), 3, _ -> get_am st a b (c - 1)
-        | _, 3, _ -> get_am st a b (c - 2)
-        | 0, 0, 1 -> Absolute
-        | 0, 0, a when a >= 4 -> Immediate
-        | 0, 0, _ -> Implicit
-        | 0, 1, _ -> Indexed_Indirect
-        | 0, _, _ -> Immediate
-        | 1, _, _ -> Zero_Page
-        | 2, 0, _ -> Implicit
-        | 2, 1, _ -> Immediate
-        | 2, _, a when a < 4 -> Accumulator
-        | 2, _, _ -> Implicit
-        | 3, 0, 3 -> Indirect
-        | 3, _, _ -> Absolute
-        | 4, 0, _ -> Relative
-        | 4, 1, _ -> Indirect_Indexed
-        | 4, _, _ -> invalid_instruction st
-        | 5, c, a when a < 4 || a > 5 || c <> 2 -> Zero_Page_X
-        | 5, _, _ -> Zero_Page_Y
-        | 6, 1, _ -> Absolute_Y
-        | 6, _, _ -> Implicit
-        | _, 2, 5 -> Absolute_Y
-        | _, _, _ -> Absolute_X
-
-      let decode st (opcode : uint8) =
-        let (a, b, c) = triple opcode in
-        let (a, b, c) = Uint8.(to_int a, to_int b, to_int c) in
-        let f, cfi = get_fun a b c in
-        let cf = if cfi = -1 then unofCycles a b c else cycFuns.(cfi) in
-        let am = get_am st a b c in
+      (* Return instruction operation, cycle function and addressing mode of
+       * opcode *)
+      let decode (opcode : uint8) =
+        let triple = triple opcode in
+        let f, cfi = get_fun triple in
+        let cf = if cfi = -1 then unofCycles triple else cycle_functions.(cfi) in
+        let am = get_am triple in
         (f, cf, am)
     end
   end
@@ -625,7 +718,7 @@ module Make (M : MemoryMap) = struct
     );
     (* Continue as normal *)
     let opcode = M.read st.mem @@ PC.get st.pc in
-    let (f, cf, am) = Instruction.Decoding.decode st opcode in
+    let (f, cf, am) = Instruction.Decoding.decode opcode in
     let (arg, page_crossed) = package_arg st am in
     let mode_size = addressing_mode_size am in
     PC.set st.pc Uint16.(PC.get st.pc + (u16 mode_size)) ;
@@ -640,7 +733,7 @@ module Make (M : MemoryMap) = struct
   let print_state st =
     let pc = PC.get st.pc in
     let opcode = M.read st.mem pc in
-    let (_, _, am) = Instruction.Decoding.decode st opcode in
+    let (_, _, am) = Instruction.Decoding.decode opcode in
     let size = addressing_mode_size am in
     Format.printf "%a  " pp_u16 pc ;
     for i = 0 to size - 1 do
