@@ -33,7 +33,7 @@ let klaus () =
   let start = Sys.time () in
   while !continue do
     let back = get_pc cpu in
-    SCpu.next_cycle cpu;
+    ignore @@ SCpu.next_instruction cpu;
     if back = get_pc cpu then continue := false
   done;
   let time_taken = Sys.time () -. start in
@@ -73,7 +73,7 @@ let nestest () =
       "Same P register" correctP
       (Uint8.to_int @@ get_reg cpu `P);
     last_line := toParse;
-    SCpu.next_cycle cpu
+    ignore @@ SCpu.next_instruction cpu
   done;
   Alcotest.(check int) "Final status 1" 0 (Uint8.to_int @@ read_mem cpu 2);
   Alcotest.(check int) "Final status 2" 0 (Uint8.to_int @@ read_mem cpu 3)
@@ -87,7 +87,7 @@ let test_rom path ?(expected = "Passed") () =
   SCpu.PC.init (SCpu.pc cpu) (SCpu.memory cpu);
   while !continue do
     let back = get_pc cpu in
-    SCpu.next_cycle cpu;
+    ignore @@ SCpu.next_instruction cpu;
     if back = get_pc cpu then continue := false
   done;
   let cur_pos = ref 0x6004 in
@@ -123,7 +123,7 @@ let extended_opcodes ?(expected = 0x3469) () =
   set_reg cpu `P (u8 0x00);
   while !continue do
     let back = get_pc cpu in
-    SCpu.next_cycle cpu;
+    ignore @@ SCpu.next_instruction cpu;
     if back = get_pc cpu then continue := false
   done;
   Alcotest.(check int) "Trap address" expected (get_pc cpu |> Uint16.to_int)

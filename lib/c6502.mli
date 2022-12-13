@@ -152,11 +152,16 @@ module type CPU = sig
 
   (** {2 Simulation} *)
 
-  val next_cycle : t -> unit
-  (** Fetches, decodes and executes the next instruction, modifying the
-      current state according to the simulation.
+  val next_instruction : t -> int
+  (** Fetches, decodes and executes the whole next instruction, modifying the
+      current state according to the simulation. Returns the number of cycles
+      elapsed.
 
       This is the {e main entry point} of the simulation. *)
+
+  val next_cycle : t -> unit
+  (** Execute a single cycle of the CPU,
+      more granular then [next_instruction] *)
 
   val reset : t -> unit
   (** Completely restore the default state of the CPU, wiping the CPU memory

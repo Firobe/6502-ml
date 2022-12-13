@@ -49,6 +49,7 @@ module Make (M : MemoryMap) = struct
     nmi : NMI.t;
     mutable enable_decimal : bool;
     mutable cycle_count : int;
+    mutable sub_cycle : int;
   }
 
   module Stack = struct

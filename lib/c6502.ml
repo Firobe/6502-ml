@@ -32,6 +32,7 @@ module type CPU = sig
   val memory : t -> mem
   val enable_decimal : t -> bool -> unit
   val cycle_count : t -> int
+  val next_instruction : t -> int
   val next_cycle : t -> unit
   val reset : t -> unit
   val nmi : t -> unit
@@ -59,6 +60,7 @@ module Make (M : MemoryMap) = struct
       nmi;
       enable_decimal = true;
       cycle_count = 0;
+      sub_cycle = 0;
     }
 
   let pc st = st.pc
@@ -186,7 +188,7 @@ module Make (M : MemoryMap) = struct
     PC.set st.pc
     @@ mk_addr ~lo:(M.read st.mem 0xFFFAU) ~hi:(M.read st.mem 0xFFFBU)
 
-  let next_cycle st =
+  let next_instruction st =
     (* Check for interrupts *)
     (* NMI *)
     if NMI.check st.nmi then (
@@ -213,7 +215,12 @@ module Make (M : MemoryMap) = struct
     st.cycle_count <- st.cycle_count + cycles_elapsed;
     (* Reserved bit always on *)
     Flag.set st.reg Flag.reserved true;
-    f st arg
+    f st arg;
+    cycles_elapsed
+
+  let next_cycle st =
+    if st.sub_cycle = 0 then st.sub_cycle <- next_instruction st - 1
+    else st.sub_cycle <- st.sub_cycle - 1
 
   let nmi st = NMI.pull st.nmi
 
