@@ -225,20 +225,6 @@ module Make (M : MemoryMap) = struct
 
   let nmi st = NMI.pull st.nmi
 
-  let print_state st =
-    let pc = PC.get st.pc in
-    let opcode = M.read st.mem pc in
-    let _, _, am = Decoding.decode opcode in
-    let size = Addressing.size am in
-    Format.printf "%a  " pp_u16 pc;
-    for i = 0 to size - 1 do
-      Format.printf "%a " pp_u8 (M.read st.mem Uint16.(pc + u16 i))
-    done;
-    Format.printf "\t\t A:%a X:%a Y:%a P:%a SP:%a CYC:%3d\n%!" pp_u8
-      (R.get st.reg `A) pp_u8 (R.get st.reg `X) pp_u8 (R.get st.reg `Y) pp_u8
-      (R.get st.reg `P) pp_u8 (R.get st.reg `S)
-      Stdlib.(st.cycle_count * 3 mod 341)
-
   let pp fmt st =
     let pc = PC.get st.pc in
     let opcode = M.read st.mem pc in
@@ -252,4 +238,6 @@ module Make (M : MemoryMap) = struct
       (R.get st.reg `A) pp_u8 (R.get st.reg `X) pp_u8 (R.get st.reg `Y) pp_u8
       (R.get st.reg `P) pp_u8 (R.get st.reg `S)
       Stdlib.(st.cycle_count * 3 mod 341)
+
+  let print_state = pp Format.std_formatter
 end
