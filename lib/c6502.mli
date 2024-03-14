@@ -175,6 +175,9 @@ module type CPU = sig
   val print_state : t -> unit
   (** Print the content of the registers, PC, the cycle count and the current
         byte pointed by PC. *)
+
+  val pp : Format.formatter -> t -> unit
+  (** Fine-grained pretty-printer *)
 end
 
 module Utils = Utils
